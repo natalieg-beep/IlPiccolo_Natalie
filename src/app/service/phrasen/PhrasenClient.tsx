@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 type Phrase = { id: string; category: string; turkish: string; german: string; pronunciation: string; formality: string }
 
-const CAT_ORDER = ['Willkommen', 'Vorstellung', 'Getränke', 'Pizza', 'Nachfragen', 'Zahlung', 'Verabschiedung', 'Problem']
+const CAT_ORDER = ['Willkommen', 'Vorstellung', 'Orientierung', 'Getränke', 'Pizza', 'Küche', 'Nachfragen', 'Smalltalk', 'Zahlung', 'Verabschiedung', 'Problem']
 
 export default function PhrasenClient({ phrases }: { phrases: Phrase[] }) {
   const [search, setSearch] = useState('')
