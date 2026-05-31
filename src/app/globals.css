@@ -1,16 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  --gold: #d4a843;
-  --gold-light: #e8c06a;
-  --bg: #1a1a1a;
-  --bg-card: #2a2a2a;
-  --bg-warm: #2a2015;
-  --border: #3a3a3a;
-  --border-warm: #4a3a20;
-  --text: #f0ede8;
-  --text-muted: #9a8060;
-  --green: #6abf6a;
+  --gold: #b8882a;
+  --gold-bg: #FFF8EC;
+  --gold-border: #E8C878;
+  --bg: #F7F4F0;
+  --bg-card: #FFFFFF;
+  --bg-header: #FFFDF9;
+  --border: #E5E0D8;
+  --border-warm: #D4A843;
+  --text: #1A1207;
+  --text-muted: #8A7A60;
+  --green: #2E7D32;
+  --green-bg: #F0FAF0;
+  --green-border: #A5D6A7;
+  --red: #C62828;
+  --red-bg: #FFF0F0;
+  --blue: #1565C0;
+  --blue-bg: #EEF4FF;
+  --blue-border: #90CAF9;
 }
 
 * { -webkit-tap-highlight-color: transparent; }
