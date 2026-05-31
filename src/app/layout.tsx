@@ -5,7 +5,11 @@ export const metadata: Metadata = {
   title: 'Il Piccolo N',
   description: 'Internes Tool — Il Piccolo, Kaş',
   manifest: '/manifest.json',
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Il Piccolo N' },
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Il Piccolo' },
+  icons: {
+    icon: '/favicon.png',
+    apple: '/apple-touch-icon.png',
+  },
 }
 
 export const viewport: Viewport = {
