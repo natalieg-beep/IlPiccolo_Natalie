@@ -46,11 +46,46 @@ export const MENU: MenuItem[] = [
   { name: 'Iced Caffe Latte', desc: '', price: 185, category: 'coffee' },
   { name: 'Türk Kahvesi Tek', desc: '', price: 95, category: 'coffee' },
   { name: 'Türk Kahvesi Double', desc: '', price: 140, category: 'coffee' },
+  // Extras — Käse
+  { name: 'Burrata EKSTRA', desc: 'Taze burrata (100g)', price: 475, category: 'extra' },
+  { name: 'Fior di Latte EKSTRA', desc: 'Fior di Latte (50g)', price: 160, category: 'extra' },
+  { name: 'Grana Padano / Parmesan EKSTRA', desc: 'Rendelenmiş Grana Padano / Parmesan (20g)', price: 115, category: 'extra' },
+  { name: 'Gorgonzola EKSTRA', desc: 'Gorgonzola (30g)', price: 140, category: 'extra' },
+  { name: 'Gouda EKSTRA', desc: 'Gouda (30g)', price: 115, category: 'extra' },
+  { name: 'Labne / Taze Peynir EKSTRA', desc: 'Labne / taze peynir (50g)', price: 45, category: 'extra' },
+  // Extras — Fleisch
+  { name: 'Sucuk EKSTRA', desc: 'Premium dana sucuk (38g)', price: 80, category: 'extra' },
+  { name: 'İtalyan Salamı EKSTRA', desc: 'İtalyan dana salamı (38g)', price: 100, category: 'extra' },
+  { name: 'Pastırma EKSTRA', desc: 'Pastırma (20g)', price: 215, category: 'extra' },
+  { name: 'Dana Jambon EKSTRA', desc: 'Dana jambon (32g)', price: 165, category: 'extra' },
+  // Extras — Gemüse
+  { name: 'Mantar EKSTRA', desc: 'Taze kültür mantarı (50g)', price: 30, category: 'extra' },
+  { name: 'Kapya Biber EKSTRA', desc: 'Karışık kapya biber (50g)', price: 25, category: 'extra' },
+  { name: 'Kırmızı Soğan EKSTRA', desc: 'Kırmızı soğan (50g)', price: 25, category: 'extra' },
+  { name: 'Çeri Domates EKSTRA', desc: 'Çeri domates (50g)', price: 35, category: 'extra' },
+  { name: 'Roka EKSTRA', desc: 'Taze roka (20g)', price: 25, category: 'extra' },
+  { name: 'Zeytin EKSTRA', desc: 'Karışık dilimlenmiş zeytin (30g)', price: 50, category: 'extra' },
+  { name: 'Mısır EKSTRA', desc: 'Mısır (40g)', price: 30, category: 'extra' },
+  { name: 'Taze Fesleğen EKSTRA', desc: 'Taze fesleğen (3g)', price: 25, category: 'extra' },
+  { name: 'Acı Biber EKSTRA', desc: 'Acı biber (15g)', price: 25, category: 'extra' },
+  // Extras — Saucen
+  { name: 'San Marzano Domates Sosu EKSTRA', desc: 'San Marzano domates sosu (100g)', price: 75, category: 'extra' },
+  { name: 'Zeytinyağı EKSTRA', desc: 'Sızma zeytinyağı (15ml)', price: 25, category: 'extra' },
+  { name: 'Acı Biber Yağı EKSTRA', desc: 'Acı biber yağı (15ml)', price: 25, category: 'extra' },
 ]
 
 export const CATEGORIES = [
-  { key: 'pizza', label: 'Pizzalar', icon: '🍕' },
-  { key: 'dessert', label: 'Tatlılar', icon: '🍫' },
-  { key: 'drink', label: 'İçecekler', icon: '🥤' },
-  { key: 'coffee', label: 'Kahveler', icon: '☕' },
+  { key: 'pizza',   label: 'Pizzalar',  icon: '🍕' },
+  { key: 'extra',   label: 'Ekstralar', icon: '➕' },
+  { key: 'dessert', label: 'Tatlılar',  icon: '🍫' },
+  { key: 'drink',   label: 'İçecekler', icon: '🥤' },
+  { key: 'coffee',  label: 'Kahveler',  icon: '☕' },
+]
+
+// Sub-group labels for extras display
+export const EXTRA_GROUPS: { label: string; names: string[] }[] = [
+  { label: '🧀 Peynir', names: ['Burrata EKSTRA', 'Fior di Latte EKSTRA', 'Grana Padano / Parmesan EKSTRA', 'Gorgonzola EKSTRA', 'Gouda EKSTRA', 'Labne / Taze Peynir EKSTRA'] },
+  { label: '🥩 Et', names: ['Sucuk EKSTRA', 'İtalyan Salamı EKSTRA', 'Pastırma EKSTRA', 'Dana Jambon EKSTRA'] },
+  { label: '🥦 Sebze', names: ['Mantar EKSTRA', 'Kapya Biber EKSTRA', 'Kırmızı Soğan EKSTRA', 'Çeri Domates EKSTRA', 'Roka EKSTRA', 'Zeytin EKSTRA', 'Mısır EKSTRA', 'Taze Fesleğen EKSTRA', 'Acı Biber EKSTRA'] },
+  { label: '🫙 Sos', names: ['San Marzano Domates Sosu EKSTRA', 'Zeytinyağı EKSTRA', 'Acı Biber Yağı EKSTRA'] },
 ]

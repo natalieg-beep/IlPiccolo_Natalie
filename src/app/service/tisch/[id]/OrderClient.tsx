@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { MENU, CATEGORIES } from '@/lib/menu'
+import { MENU, CATEGORIES, EXTRA_GROUPS } from '@/lib/menu'
 
 type Table = { id: string; label: string; location: string }
 type OrderItem = { id: string; name: string; qty: number; unit_price: number }
@@ -101,6 +101,29 @@ export default function OrderClient({ table, existingOrder }: { table: Table; ex
     router.refresh()
   }
 
+  function ProductRow({ item, qty, onChange }: { item: { name: string; desc: string; price: number }; qty: number; onChange: (name: string, delta: number) => void }) {
+    return (
+      <div style={{
+        background: qty > 0 ? '#FFF8EC' : '#FFFFFF',
+        border: `1.5px solid ${qty > 0 ? '#B8882A' : '#E5E0D8'}`,
+        borderRadius: '12px', padding: '11px 13px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '14px', fontWeight: '600', color: '#1A1207' }}>{item.name}</div>
+          {item.desc && <div style={{ fontSize: '11px', color: '#A09080', marginTop: '2px', lineHeight: 1.4 }}>{item.desc}</div>}
+          <div style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A', marginTop: '3px' }}>{item.price} ₺</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '10px' }}>
+          <button onClick={() => onChange(item.name, -1)} style={S.qtyBtn}>−</button>
+          <span style={{ fontSize: '16px', fontWeight: '700', minWidth: '22px', textAlign: 'center', color: '#1A1207' }}>{qty}</span>
+          <button onClick={() => onChange(item.name, 1)} style={S.qtyBtn}>+</button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ maxWidth: '480px', margin: '0 auto', paddingBottom: '120px', background: '#F7F4F0', minHeight: '100dvh' }}>
       {/* Header */}
@@ -145,31 +168,28 @@ export default function OrderClient({ table, existingOrder }: { table: Table; ex
         {selectedCat && (
           <div style={{ marginBottom: '16px' }}>
             <p style={S.label}>{CATEGORIES.find(c => c.key === selectedCat)?.label}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {MENU.filter(m => m.category === selectedCat).map(item => {
-                const qty = items[item.name] ?? 0
-                return (
-                  <div key={item.name} style={{
-                    background: qty > 0 ? '#FFF8EC' : '#FFFFFF',
-                    border: `1.5px solid ${qty > 0 ? '#B8882A' : '#E5E0D8'}`,
-                    borderRadius: '12px', padding: '11px 13px',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                  }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: '#1A1207' }}>{item.name}</div>
-                      {item.desc && <div style={{ fontSize: '11px', color: '#A09080', marginTop: '2px', lineHeight: 1.4 }}>{item.desc}</div>}
-                      <div style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A', marginTop: '3px' }}>{item.price} ₺</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '10px' }}>
-                      <button onClick={() => changeQty(item.name, -1)} style={S.qtyBtn}>−</button>
-                      <span style={{ fontSize: '16px', fontWeight: '700', minWidth: '22px', textAlign: 'center', color: '#1A1207' }}>{qty}</span>
-                      <button onClick={() => changeQty(item.name, 1)} style={S.qtyBtn}>+</button>
-                    </div>
+
+            {selectedCat === 'extra' ? (
+              // Extras: nach Untergruppen gegliedert
+              EXTRA_GROUPS.map(group => (
+                <div key={group.label} style={{ marginBottom: '10px' }}>
+                  <p style={{ fontSize: '11px', color: '#8A7A60', fontWeight: '600', marginBottom: '5px', paddingLeft: '2px' }}>
+                    {group.label}
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    {MENU.filter(m => group.names.includes(m.name)).map(item => (
+                      <ProductRow key={item.name} item={item} qty={items[item.name] ?? 0} onChange={changeQty} />
+                    ))}
                   </div>
-                )
-              })}
-            </div>
+                </div>
+              ))
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {MENU.filter(m => m.category === selectedCat).map(item => (
+                  <ProductRow key={item.name} item={item} qty={items[item.name] ?? 0} onChange={changeQty} />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
