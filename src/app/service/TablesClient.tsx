@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Table = { id: string; label: string; location: string }
+type Table = { id: string; label: string; location: string; note: string | null }
 
 const STATUS_STYLE: Record<string, { bg: string; border: string; dot: string; label: string }> = {
   open:        { bg: '#F0FAF0', border: '#4CAF50', dot: '#4CAF50', label: 'Offen' },
@@ -52,6 +52,11 @@ export default function TablesClient({
           {status && (
             <div style={{ fontSize: '10px', color: style?.dot, marginTop: '3px', fontWeight: '700' }}>
               ● {style?.label}
+            </div>
+          )}
+          {t.note && (
+            <div style={{ fontSize: '10px', color: '#B8882A', marginTop: '3px' }} title={t.note}>
+              📝
             </div>
           )}
         </div>

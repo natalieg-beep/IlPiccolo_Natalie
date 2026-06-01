@@ -18,3 +18,6 @@ ALTER TABLE daily_entries ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "owner only" ON daily_entries
   FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
+
+-- Tisch-Notiz (persistent, unabhängig von Bestellungen)
+ALTER TABLE tables ADD COLUMN IF NOT EXISTS note text;

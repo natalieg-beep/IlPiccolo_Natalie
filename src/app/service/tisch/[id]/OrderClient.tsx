@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { MENU, CATEGORIES, EXTRA_GROUPS } from '@/lib/menu'
 
-type Table = { id: string; label: string; location: string }
+type Table = { id: string; label: string; location: string; note: string | null }
 type OrderItem = { id: string; name: string; qty: number; unit_price: number; on_the_house: boolean }
 type Order = {
   id: string; status: string; note: string | null
@@ -53,7 +53,17 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
   const [customDiscount, setCustomDiscount] = useState('')
   const [paymentMethod,  setPaymentMethod]  = useState(existingOrder?.payment_method ?? '')
 
-  // ── Notiz ────────────────────────────────────────────────────────
+  // ── Tisch-Notiz (persistent) ─────────────────────────────────────
+  const [tableNote,     setTableNote]     = useState(table.note ?? '')
+  const [tableNoteSaved, setTableNoteSaved] = useState(false)
+
+  async function saveTableNote() {
+    await supabase.from('tables').update({ note: tableNote || null }).eq('id', table.id)
+    setTableNoteSaved(true)
+    setTimeout(() => setTableNoteSaved(false), 2000)
+  }
+
+  // ── Bestellungs-Notiz ────────────────────────────────────────────
   const [note,     setNote]     = useState(existingOrder?.note ?? '')
   const [showNote, setShowNote] = useState(false)
 
@@ -220,6 +230,38 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
       </div>
 
       <div style={{ padding: '16px' }}>
+
+        {/* Tisch-Notiz */}
+        <div style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+            <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#8A7A60' }}>
+              📝 Tisch-Notiz
+            </span>
+            {tableNoteSaved && <span style={{ fontSize: '11px', color: '#2E7D32', fontWeight: '600' }}>✓ gespeichert</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <textarea
+              value={tableNote}
+              onChange={e => setTableNote(e.target.value)}
+              placeholder="Stammgast, Allergie, Besonderheit… (bleibt am Tisch)"
+              rows={2}
+              style={{
+                flex: 1, background: tableNote ? '#FFF8EC' : '#FFFFFF',
+                border: `1px solid ${tableNote ? '#E8C878' : '#E5E0D8'}`,
+                borderRadius: '8px', padding: '9px 11px', color: '#1A1207',
+                fontSize: '13px', resize: 'none', outline: 'none',
+              }}
+            />
+            <button onClick={saveTableNote} style={{
+              background: '#FFF8EC', border: '1px solid #E8C878', color: '#B8882A',
+              borderRadius: '8px', padding: '0 12px', fontSize: '13px', cursor: 'pointer', fontWeight: '700',
+              alignSelf: 'stretch',
+            }}>💾</button>
+          </div>
+          <div style={{ fontSize: '10px', color: '#A09080', marginTop: '4px' }}>
+            Diese Notiz bleibt am Tisch — unabhängig von Bestellungen
+          </div>
+        </div>
 
         {/* Kategorien */}
         <p style={S.label}>Kategorie</p>
