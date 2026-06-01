@@ -15,10 +15,10 @@ export default function ManagementPage() {
 
       <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
         {[
+          { label: 'Tages-Kasse', icon: '💰', desc: 'Trinkgeld, Schwarz, Notizen', href: '/management/kasse' },
+          { label: 'Übersicht', icon: '📊', desc: 'Bestellungen & Umsatz', href: '/management/uebersicht' },
           { label: 'Ausgaben', icon: '🧾', desc: 'Belege, Wareneinstand, Privat', href: '/management/ausgaben' },
           { label: 'Fixkosten', icon: '📋', desc: 'Monatliche laufende Kosten', href: '/management/fixkosten' },
-          { label: 'Zutaten', icon: '🥫', desc: 'Preise & Preisverlauf', href: '/management/zutaten' },
-          { label: 'Übersicht', icon: '📊', desc: 'Kosten & Auswertung', href: '/management/uebersicht' },
         ].map(item => (
           <Link key={item.label} href={item.href} style={{ textDecoration: 'none' }}>
             <div style={{ background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '14px', padding: '20px', cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>

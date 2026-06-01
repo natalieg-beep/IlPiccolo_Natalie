@@ -17,20 +17,23 @@ export default async function UebersichtPage() {
 
   const allOrders = orders ?? []
 
-  // Umsatz = nur bezahlte (nicht schwarz), abzüglich Aufs-Haus, mit Rabatt
+  // Umsatz = nur offiziell bezahlt (card/cash), abzüglich Aufs-Haus, mit Rabatt
   function orderRevenue(o: typeof allOrders[0]) {
-    if (o.payment_method === 'schwarz') return 0
+    if (o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar') return 0
     const items: { unit_price: number; qty: number; on_the_house: boolean }[] = o.order_items ?? []
     const base = items.reduce((s, i) => i.on_the_house ? s : s + i.unit_price * i.qty, 0)
     return Math.round(base * (1 - (o.discount_percent ?? 0) / 100))
   }
 
-  const totalRevenue = allOrders.reduce((s, o) => s + orderRevenue(o), 0)
-  const schwarzTotal = allOrders.filter(o => o.payment_method === 'schwarz')
-    .reduce((s, o) => {
-      const items: { unit_price: number; qty: number; on_the_house: boolean }[] = o.order_items ?? []
-      return s + items.reduce((ss, i) => i.on_the_house ? ss : ss + i.unit_price * i.qty, 0)
-    }, 0)
+  function orderGross(o: typeof allOrders[0]) {
+    const items: { unit_price: number; qty: number; on_the_house: boolean }[] = o.order_items ?? []
+    return items.reduce((s, i) => i.on_the_house ? s : s + i.unit_price * i.qty, 0)
+  }
+
+  const totalRevenue    = allOrders.reduce((s, o) => s + orderRevenue(o), 0)
+  const schwarzTotal    = allOrders
+    .filter(o => o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar')
+    .reduce((s, o) => s + orderGross(o), 0)
 
   const statusLabel: Record<string, { label: string; color: string; bg: string }> = {
     open:        { label: 'Offen',         color: '#2E7D32', bg: '#F0FAF0' },
@@ -39,9 +42,16 @@ export default async function UebersichtPage() {
   }
 
   const payLabel: Record<string, string> = {
-    card:    '💳 Karte',
-    cash:    '💵 Bar',
-    schwarz: '🤝 Freunde/Fam.',
+    card:        '💳 Karte',
+    cash:        '💵 Bar',
+    schwarz_bar: '🤝 Freunde (bar)',
+    schwarz:     '🎁 Freunde (gratis)',
+  }
+
+  const childrenLabel: Record<string, string> = {
+    kleinkind:   '👶',
+    kinder:      '👧',
+    jugendliche: '🧒',
   }
 
   const groupLabel: Record<string, string> = {
@@ -105,7 +115,8 @@ export default async function UebersichtPage() {
               const charged  = orderRevenue(order)
               const st       = statusLabel[order.status] ?? statusLabel.closed
               const time     = new Date(order.opened_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-              const isSchwarz = order.payment_method === 'schwarz'
+              const isSchwarz = order.payment_method === 'schwarz' || order.payment_method === 'schwarz_bar'
+              const childrenChips = (order.children_info ?? '').split(',').filter(Boolean).map((v: string) => childrenLabel[v] ?? '').join(' ')
 
               return (
                 <div key={order.id} style={{
@@ -182,10 +193,11 @@ export default async function UebersichtPage() {
                     )}
 
                     {/* Gäste-Infos */}
-                    {(order.guest_origin || order.age_group || order.party_size || order.group_type) && (
+                    {(order.guest_origin || order.age_group || order.party_size || order.group_type || order.children_info) && (
                       <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '4px' }}>
                         👥 {[
                           order.group_type && groupLabel[order.group_type],
+                          childrenChips,
                           order.party_size && `${order.party_size} Pers.`,
                           order.age_group,
                           order.guest_origin && originLabel[order.guest_origin],

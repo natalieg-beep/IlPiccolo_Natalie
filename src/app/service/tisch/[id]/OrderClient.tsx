@@ -12,6 +12,7 @@ type Order = {
   id: string; status: string; note: string | null
   guest_origin: string | null; age_group: string | null; party_size: number | null
   discount_percent: number | null; payment_method: string | null; group_type: string | null
+  children_info: string | null
   order_items: OrderItem[]
 }
 
@@ -61,7 +62,10 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
   const [guestOrigin, setGuestOrigin] = useState(existingOrder?.guest_origin ?? '')
   const [ageGroup,    setAgeGroup]    = useState(existingOrder?.age_group ?? '')
   const [partySize,   setPartySize]   = useState(existingOrder?.party_size?.toString() ?? '')
-  const [groupType,   setGroupType]   = useState(existingOrder?.group_type ?? '')
+  const [groupType,    setGroupType]    = useState(existingOrder?.group_type ?? '')
+  const [childrenInfo, setChildrenInfo] = useState<string[]>(
+    existingOrder?.children_info?.split(',').filter(Boolean) ?? []
+  )
 
   // ── Berechnungen ─────────────────────────────────────────────────
   const totalCount     = Object.values(items).reduce((a, b) => a + b, 0)
@@ -110,6 +114,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
       age_group: ageGroup || null, party_size: partySize ? parseInt(partySize) : null,
       discount_percent: discount || null, payment_method: paymentMethod || null,
       group_type: groupType || null,
+      children_info: childrenInfo.length ? childrenInfo.join(',') : null,
     }
 
     if (!orderId) {
@@ -139,6 +144,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
       guest_origin: guestOrigin || null, age_group: ageGroup || null,
       party_size: partySize ? parseInt(partySize) : null,
       note: note || null, group_type: groupType || null,
+      children_info: childrenInfo.length ? childrenInfo.join(',') : null,
     }).eq('id', existingOrder.id)
     setShowGuest(false)
   }
@@ -335,9 +341,10 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
               <div style={{ fontSize: '12px', color: '#8A7A60', fontWeight: '600', marginBottom: '8px' }}>💳 Zahlungsart</div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
                 {([
-                  { val: 'card',    label: '💳 Karte' },
-                  { val: 'cash',    label: '💵 Bar' },
-                  { val: 'schwarz', label: '🤝 Freunde / Familie' },
+                  { val: 'card',          label: '💳 Karte' },
+                  { val: 'cash',          label: '💵 Bar' },
+                  { val: 'schwarz_bar',   label: '🤝 Freunde (bar)' },
+                  { val: 'schwarz',       label: '🎁 Freunde (gratis)' },
                 ] as const).map(({ val, label }) => (
                   <button key={val} onClick={() => setPaymentMethod(paymentMethod === val ? '' : val)} style={{
                     ...S.chip(paymentMethod === val),
@@ -391,6 +398,27 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                       {label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Kinder */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>Mit Kindern</label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
+                  {([
+                    ['kleinkind',   '👶 Kleinkind'],
+                    ['kinder',      '👧 Kinder'],
+                    ['jugendliche', '🧒 Jugendliche'],
+                  ] as const).map(([val, label]) => {
+                    const active = childrenInfo.includes(val)
+                    return (
+                      <button key={val} onClick={() => setChildrenInfo(prev =>
+                        active ? prev.filter(v => v !== val) : [...prev, val]
+                      )} style={S.chip(active)}>
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -469,9 +497,10 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
           <div>
             <div style={{ fontSize: '12px', color: '#8A7A60' }}>
               Tisch {table.label}
-              {paymentMethod === 'card'    && '  ·  💳 Karte'}
-              {paymentMethod === 'cash'    && '  ·  💵 Bar'}
-              {paymentMethod === 'schwarz' && '  ·  🤝 Freunde'}
+              {paymentMethod === 'card'        && '  ·  💳 Karte'}
+              {paymentMethod === 'cash'        && '  ·  💵 Bar'}
+              {paymentMethod === 'schwarz_bar' && '  ·  🤝 Freunde (bar)'}
+              {paymentMethod === 'schwarz'     && '  ·  🎁 Freunde (gratis)'}
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
               <span style={{ fontSize: '20px', fontWeight: '800', color: '#B8882A' }}>{totalCount}</span>
