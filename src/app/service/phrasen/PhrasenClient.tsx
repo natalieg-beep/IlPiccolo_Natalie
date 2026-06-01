@@ -170,7 +170,7 @@ export default function PhrasenClient({ phrases }: { phrases: Phrase[] }) {
         {!search && (
           <div
             ref={tabsRef}
-            style={{ display: 'flex', gap: '6px', overflowX: 'auto', padding: '0 14px 10px', scrollbarWidth: 'none' }}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '0 14px 10px' }}
           >
             {/* Favoriten-Tab */}
             {hasFavs && (
@@ -259,26 +259,6 @@ export default function PhrasenClient({ phrases }: { phrases: Phrase[] }) {
               </div>
             )}
 
-            {/* Mini-Nav: andere Kategorien */}
-            <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #E5E0D8' }}>
-              <p style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '1px', color: '#8A7A60', marginBottom: '8px' }}>
-                Weitere Kategorien
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {hasFavs && resolvedTab !== '__favs' && (
-                  <button onClick={() => selectTab('__favs')} style={{
-                    background: '#FFF8EC', border: '1px solid #E8A800', borderRadius: '16px',
-                    padding: '5px 11px', fontSize: '12px', cursor: 'pointer', color: '#B8882A', fontWeight: '600',
-                  }}>★ Favoriten</button>
-                )}
-                {availCats.filter(c => c !== resolvedTab).map(cat => (
-                  <button key={cat} onClick={() => { selectTab(cat); window.scrollTo({ top: 0, behavior: 'smooth' }) }} style={{
-                    background: '#F5F2EC', border: '1px solid #E0D8CE', borderRadius: '16px',
-                    padding: '5px 11px', fontSize: '12px', cursor: 'pointer', color: '#5A5040',
-                  }}>{CAT_EMOJI[cat] ?? ''} {cat}</button>
-                ))}
-              </div>
-            </div>
           </>
         )}
       </div>
