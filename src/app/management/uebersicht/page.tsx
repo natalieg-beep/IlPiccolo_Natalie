@@ -128,18 +128,23 @@ export default async function UebersichtPage() {
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ background: st.bg, color: st.color, fontSize: '11px', fontWeight: '600', padding: '3px 8px', borderRadius: '6px' }}>
-                        {st.label}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ textAlign: 'right' }}>
+                        <span style={{ background: st.bg, color: st.color, fontSize: '11px', fontWeight: '600', padding: '3px 8px', borderRadius: '6px', display: 'block', marginBottom: '3px' }}>
+                          {st.label}
+                        </span>
                         {(order.discount_percent || houseAmt > 0) && (
-                          <div style={{ fontSize: '10px', color: '#8A7A60', textDecoration: 'line-through' }}>{gross} ₺</div>
+                          <div style={{ fontSize: '10px', color: '#8A7A60', textDecoration: 'line-through', textAlign: 'right' }}>{gross} ₺</div>
                         )}
                         <span style={{ fontSize: '15px', fontWeight: '700', color: isSchwarz ? '#2E7D32' : '#B8882A' }}>
                           {isSchwarz ? `${gross} ₺ 🤝` : `${charged} ₺`}
                         </span>
                       </div>
+                      <Link href={`/management/order/${order.id}`}>
+                        <button style={{ background: '#FFF8EC', border: '1px solid #E8C878', color: '#B8882A', padding: '8px 11px', borderRadius: '8px', fontSize: '16px', cursor: 'pointer' }}>
+                          ✏️
+                        </button>
+                      </Link>
                     </div>
                   </div>
 

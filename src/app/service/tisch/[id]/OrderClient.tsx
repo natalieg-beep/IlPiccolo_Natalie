@@ -29,7 +29,7 @@ const S = {
   }),
 }
 
-export default function OrderClient({ table, existingOrder }: { table: Table; existingOrder: Order | null }) {
+export default function OrderClient({ table, existingOrder, backHref }: { table: Table; existingOrder: Order | null; backHref?: string }) {
   const router  = useRouter()
   const supabase = createClient()
 
@@ -129,7 +129,7 @@ export default function OrderClient({ table, existingOrder }: { table: Table; ex
         on_the_house: onTheHouse.has(name),
       }))
     )
-    router.push('/service')
+    router.push(backHref ?? '/service')
     router.refresh()
   }
 
@@ -150,7 +150,7 @@ export default function OrderClient({ table, existingOrder }: { table: Table; ex
       status: 'transferred', closed_at: new Date().toISOString(),
       discount_percent: discount || null, payment_method: paymentMethod || null,
     }).eq('id', existingOrder.id)
-    router.push('/service')
+    router.push(backHref ?? '/service')
     router.refresh()
   }
 
@@ -160,7 +160,7 @@ export default function OrderClient({ table, existingOrder }: { table: Table; ex
     setSaving(true)
     await supabase.from('orders').update({ status: 'closed', closed_at: new Date().toISOString() })
       .eq('id', existingOrder.id)
-    router.push('/service')
+    router.push(backHref ?? '/service')
     router.refresh()
   }
 
