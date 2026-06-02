@@ -54,7 +54,8 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
   const [paymentMethod,  setPaymentMethod]  = useState(existingOrder?.payment_method ?? '')
 
   // ── Tisch-Notiz (persistent) ─────────────────────────────────────
-  const [tableNote,     setTableNote]     = useState(table.note ?? '')
+  const [tableNote,      setTableNote]      = useState(table.note ?? '')
+  const [showTableNote,  setShowTableNote]  = useState(!!(table.note?.trim()))
   const [tableNoteSaved, setTableNoteSaved] = useState(false)
 
   async function saveTableNote() {
@@ -233,34 +234,40 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
 
         {/* Tisch-Notiz */}
         <div style={{ marginBottom: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
-            <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#8A7A60' }}>
-              📝 Tisch-Notiz
-            </span>
-            {tableNoteSaved && <span style={{ fontSize: '11px', color: '#2E7D32', fontWeight: '600' }}>✓ gespeichert</span>}
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <textarea
-              value={tableNote}
-              onChange={e => setTableNote(e.target.value)}
-              placeholder="Stammgast, Allergie, Besonderheit… (bleibt am Tisch)"
-              rows={2}
-              style={{
-                flex: 1, background: tableNote ? '#FFF8EC' : '#FFFFFF',
-                border: `1px solid ${tableNote ? '#E8C878' : '#E5E0D8'}`,
-                borderRadius: '8px', padding: '9px 11px', color: '#1A1207',
-                fontSize: '13px', resize: 'none', outline: 'none',
-              }}
-            />
-            <button onClick={saveTableNote} style={{
-              background: '#FFF8EC', border: '1px solid #E8C878', color: '#B8882A',
-              borderRadius: '8px', padding: '0 12px', fontSize: '13px', cursor: 'pointer', fontWeight: '700',
-              alignSelf: 'stretch',
-            }}>💾</button>
-          </div>
-          <div style={{ fontSize: '10px', color: '#A09080', marginTop: '4px' }}>
-            Diese Notiz bleibt am Tisch — unabhängig von Bestellungen
-          </div>
+          <button onClick={() => setShowTableNote(v => !v)} style={{
+            background: tableNote?.trim() ? '#FFF8EC' : '#FFFFFF',
+            border: `1px solid ${tableNote?.trim() ? '#E8C878' : '#E5E0D8'}`,
+            borderRadius: '10px', padding: '9px 14px', width: '100%', textAlign: 'left',
+            cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: '13px', color: tableNote?.trim() ? '#B8882A' : '#8A7A60',
+          }}>
+            <span>📝 Tisch-Notiz {tableNote?.trim() ? '✓' : '(optional)'}</span>
+            <span>{showTableNote ? '▼' : '▶'}</span>
+          </button>
+          {showTableNote && (
+            <div style={{ marginTop: '6px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <textarea
+                  value={tableNote}
+                  onChange={e => setTableNote(e.target.value)}
+                  placeholder="Stammgast, Allergie, Besonderheit… (bleibt am Tisch)"
+                  rows={2}
+                  style={{
+                    flex: 1, background: '#FFFFFF', border: '1px solid #E5E0D8',
+                    borderRadius: '8px', padding: '9px 11px', color: '#1A1207',
+                    fontSize: '13px', resize: 'none', outline: 'none',
+                  }}
+                />
+                <button onClick={saveTableNote} style={{
+                  background: '#FFF8EC', border: '1px solid #E8C878', color: '#B8882A',
+                  borderRadius: '8px', padding: '0 12px', fontSize: '13px', cursor: 'pointer', fontWeight: '700',
+                  alignSelf: 'stretch',
+                }}>💾</button>
+              </div>
+              {tableNoteSaved && <p style={{ fontSize: '11px', color: '#2E7D32', marginTop: '4px' }}>✓ Gespeichert</p>}
+              <p style={{ fontSize: '10px', color: '#A09080', marginTop: '4px' }}>Bleibt dauerhaft am Tisch — unabhängig von Bestellungen</p>
+            </div>
+          )}
         </div>
 
         {/* Kategorien */}
