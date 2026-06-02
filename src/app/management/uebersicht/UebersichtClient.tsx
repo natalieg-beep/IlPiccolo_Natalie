@@ -65,24 +65,30 @@ export default function UebersichtClient({
   const [deleting, setDeleting] = useState<string | null>(null)
 
   // ── Tagesabschluss ───────────────────────────────────────────────
-  const [beko,       setBeko]       = useState('')
-  const [menulux,    setMenulux]    = useState('')
-  const [abschlussId, setAbschlussId] = useState<{ beko?: string; menulux?: string }>({})
+  const [beko,             setBeko]             = useState('')
+  const [menulux,          setMenulux]          = useState('')
+  const [entnahmePrivat,   setEntnahmePrivat]   = useState('')
+  const [entnahmeGeschaeft, setEntnahmeGeschaeft] = useState('')
+  const [abschlussId, setAbschlussId] = useState<Record<string, string>>({})
   const [abschlussSaved, setAbschlussSaved] = useState(false)
 
   useEffect(() => {
     supabase.from('daily_entries').select('*').eq('date', date)
-      .in('entry_type', ['beko_total', 'menulux_total'])
+      .in('entry_type', ['beko_total', 'menulux_total', 'entnahme_privat', 'entnahme_geschaeft'])
       .then(({ data }) => {
         data?.forEach(e => {
-          if (e.entry_type === 'beko_total')    { setBeko(e.amount?.toString() ?? '');    setAbschlussId(p => ({ ...p, beko: e.id })) }
-          if (e.entry_type === 'menulux_total') { setMenulux(e.amount?.toString() ?? ''); setAbschlussId(p => ({ ...p, menulux: e.id })) }
+          if (e.entry_type === 'beko_total')          setBeko(e.amount?.toString() ?? '')
+          if (e.entry_type === 'menulux_total')        setMenulux(e.amount?.toString() ?? '')
+          if (e.entry_type === 'entnahme_privat')      setEntnahmePrivat(e.amount?.toString() ?? '')
+          if (e.entry_type === 'entnahme_geschaeft')   setEntnahmeGeschaeft(e.amount?.toString() ?? '')
+          setAbschlussId(p => ({ ...p, [e.entry_type]: e.id }))
         })
       })
   }, [date])
 
   async function saveAbschluss() {
-    async function upsertEntry(type: string, amount: number, existingId?: string) {
+    async function upsertEntry(type: string, amount: number) {
+      const existingId = abschlussId[type]
       if (existingId) {
         await supabase.from('daily_entries').update({ amount }).eq('id', existingId)
         return existingId
@@ -91,11 +97,16 @@ export default function UebersichtClient({
         return data?.id
       }
     }
-    const [bekoId, menuluxId] = await Promise.all([
-      upsertEntry('beko_total',    parseInt(beko)    || 0, abschlussId.beko),
-      upsertEntry('menulux_total', parseInt(menulux) || 0, abschlussId.menulux),
+    const results = await Promise.all([
+      upsertEntry('beko_total',         parseInt(beko)              || 0),
+      upsertEntry('menulux_total',       parseInt(menulux)           || 0),
+      upsertEntry('entnahme_privat',     parseInt(entnahmePrivat)    || 0),
+      upsertEntry('entnahme_geschaeft',  parseInt(entnahmeGeschaeft) || 0),
     ])
-    setAbschlussId({ beko: bekoId, menulux: menuluxId })
+    const types = ['beko_total', 'menulux_total', 'entnahme_privat', 'entnahme_geschaeft']
+    const newIds: Record<string, string> = {}
+    results.forEach((id, i) => { if (id) newIds[types[i]] = id })
+    setAbschlussId(p => ({ ...p, ...newIds }))
     setAbschlussSaved(true)
     setTimeout(() => setAbschlussSaved(false), 2000)
   }
@@ -339,38 +350,65 @@ export default function UebersichtClient({
             {/* Menulux */}
             <div>
               <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>🍽️ Menulux Einnahmen</label>
-              <input
-                type="number" min="0" placeholder="Betrag in ₺"
-                value={menulux} onChange={e => setMenulux(e.target.value)}
-                style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${menulux ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }}
-              />
+              <input type="number" min="0" placeholder="Betrag in ₺" value={menulux} onChange={e => setMenulux(e.target.value)}
+                style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${menulux ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }} />
             </div>
 
-            {/* Gesamtsumme */}
-            {(beko || menulux) && (
-              <div style={{ background: '#F0FAF0', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '12px 14px' }}>
-                <div style={{ fontSize: '12px', color: '#2E7D32', fontWeight: '600', marginBottom: '8px' }}>Zusammenfassung</div>
-                {[
-                  { label: '🏦 Beko',         value: parseInt(beko) || 0 },
-                  { label: '🍽️ Menulux',      value: parseInt(menulux) || 0 },
-                ].map(r => (
-                  <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '2px 0' }}>
-                    <span style={{ color: '#5A5040' }}>{r.label}</span>
-                    <span style={{ fontWeight: '600', color: '#1A1207' }}>{r.value.toLocaleString('de-DE')} ₺</span>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: '800', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #A5D6A7' }}>
-                  <span style={{ color: '#2E7D32' }}>Gesamt</span>
-                  <span style={{ color: '#2E7D32' }}>{((parseInt(beko) || 0) + (parseInt(menulux) || 0)).toLocaleString('de-DE')} ₺</span>
-                </div>
-                {beko && menulux && (
-                  <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '6px' }}>
-                    Differenz zur App: {Math.abs(totalRevenue - ((parseInt(beko) || 0) + (parseInt(menulux) || 0))).toLocaleString('de-DE')} ₺
-                    {totalRevenue > (parseInt(beko) || 0) + (parseInt(menulux) || 0) ? ' (App höher)' : ' (Kasse höher)'}
-                  </div>
-                )}
+            {/* Trennlinie */}
+            <div style={{ borderTop: '1px solid #F0EDE8', paddingTop: '4px' }}>
+              <div style={{ fontSize: '11px', color: '#8A7A60', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>Entnahmen</div>
+
+              {/* Privat */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>🏠 Privat-Entnahme</label>
+                <input type="number" min="0" placeholder="Betrag in ₺" value={entnahmePrivat} onChange={e => setEntnahmePrivat(e.target.value)}
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmePrivat ? '#C62828' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }} />
               </div>
-            )}
+
+              {/* Geschäftlich */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>💼 Geschäftliche Entnahme</label>
+                <input type="number" min="0" placeholder="Betrag in ₺" value={entnahmeGeschaeft} onChange={e => setEntnahmeGeschaeft(e.target.value)}
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmeGeschaeft ? '#C62828' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }} />
+              </div>
+            </div>
+
+            {/* Zusammenfassung */}
+            {(beko || menulux || entnahmePrivat || entnahmeGeschaeft) && (() => {
+              const bekoN     = parseInt(beko)              || 0
+              const menuluxN  = parseInt(menulux)           || 0
+              const privN     = parseInt(entnahmePrivat)    || 0
+              const geschN    = parseInt(entnahmeGeschaeft) || 0
+              const einnahmen = bekoN + menuluxN
+              const entnahmen = privN + geschN
+              const netto     = einnahmen - entnahmen
+              return (
+                <div style={{ background: '#F0FAF0', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '12px 14px' }}>
+                  <div style={{ fontSize: '12px', color: '#2E7D32', fontWeight: '600', marginBottom: '8px' }}>Zusammenfassung</div>
+                  {[
+                    { label: '📱 App (offiziell)', value: totalRevenue,  color: '#B8882A' },
+                    { label: '🏦 Beko',            value: bekoN,         color: '#1A1207' },
+                    { label: '🍽️ Menulux',         value: menuluxN,      color: '#1A1207' },
+                    { label: '🏠 Privat-Entnahme', value: -privN,        color: privN ? '#C62828' : '#1A1207' },
+                    { label: '💼 Geschäftl. Entnahme', value: -geschN,   color: geschN ? '#C62828' : '#1A1207' },
+                  ].filter(r => r.value !== 0).map(r => (
+                    <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '2px 0' }}>
+                      <span style={{ color: '#5A5040' }}>{r.label}</span>
+                      <span style={{ fontWeight: '600', color: r.color }}>{r.value > 0 ? '' : '−'}{Math.abs(r.value).toLocaleString('de-DE')} ₺</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: '800', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #A5D6A7' }}>
+                    <span style={{ color: netto >= 0 ? '#2E7D32' : '#C62828' }}>Netto</span>
+                    <span style={{ color: netto >= 0 ? '#2E7D32' : '#C62828' }}>{netto.toLocaleString('de-DE')} ₺</span>
+                  </div>
+                  {(beko || menulux) && (
+                    <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '5px' }}>
+                      Differenz App ↔ Kasse: {Math.abs(totalRevenue - einnahmen).toLocaleString('de-DE')} ₺
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             <button onClick={saveAbschluss} style={{
               background: '#B8882A', color: '#FFFFFF', border: 'none',
