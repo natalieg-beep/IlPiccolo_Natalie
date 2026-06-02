@@ -11,6 +11,7 @@ type Order = {
   id: string; status: string; note: string | null; opened_at: string
   guest_origin: string | null; age_group: string | null; party_size: number | null
   group_type: string | null; children_info: string | null
+  guest_country: string | null; guest_source: string | null; guest_notes: string | null
   discount_percent: number | null; payment_method: string | null
   tables: { label: string; location: string } | null
   order_items: OrderItem[]
@@ -315,7 +316,10 @@ export default function UebersichtClient({
                         ].filter(Boolean).join(' · ')}
                       </p>
                     )}
-                    {order.note && <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '4px', fontStyle: 'italic' }}>📝 {order.note}</p>}
+                    {order.guest_country && <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '4px' }}>🌍 {order.guest_country}</p>}
+                    {order.guest_source  && <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '2px' }}>📣 {order.guest_source}</p>}
+                    {order.guest_notes   && <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '2px', fontStyle: 'italic' }}>💬 {order.guest_notes}</p>}
+                    {order.note && <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '2px', fontStyle: 'italic' }}>📝 {order.note}</p>}
                   </div>
                 </div>
               )

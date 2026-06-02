@@ -13,6 +13,7 @@ type Order = {
   guest_origin: string | null; age_group: string | null; party_size: number | null
   discount_percent: number | null; payment_method: string | null; group_type: string | null
   children_info: string | null
+  guest_country: string | null; guest_source: string | null; guest_notes: string | null
   order_items: OrderItem[]
 }
 
@@ -65,6 +66,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
   const [childrenInfo, setChildrenInfo] = useState<string[]>(
     existingOrder?.children_info?.split(',').filter(Boolean) ?? []
   )
+  const [guestCountry, setGuestCountry] = useState(existingOrder?.guest_country ?? '')
+  const [guestSource,  setGuestSource]  = useState(existingOrder?.guest_source  ?? '')
+  const [guestNotes,   setGuestNotes]   = useState(existingOrder?.guest_notes   ?? '')
 
   // ── Berechnungen ─────────────────────────────────────────────────
   const totalCount     = Object.values(items).reduce((a, b) => a + b, 0)
@@ -114,6 +118,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
       discount_percent: discount || null, payment_method: paymentMethod || null,
       group_type: groupType || null,
       children_info: childrenInfo.length ? childrenInfo.join(',') : null,
+      guest_country: guestCountry || null,
+      guest_source:  guestSource  || null,
+      guest_notes:   guestNotes   || null,
     }
 
     if (!orderId) {
@@ -144,6 +151,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
       party_size: partySize ? parseInt(partySize) : null,
       note: note || null, group_type: groupType || null,
       children_info: childrenInfo.length ? childrenInfo.join(',') : null,
+      guest_country: guestCountry || null,
+      guest_source:  guestSource  || null,
+      guest_notes:   guestNotes   || null,
     }).eq('id', existingOrder.id)
     setShowGuest(false)
   }
@@ -376,7 +386,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             fontSize: '13px', color: '#8A7A60',
           }}>
-            <span>👥 Gäste-Infos {(guestOrigin || ageGroup || partySize || groupType) ? '✓' : '(optional)'}</span>
+            <span>👥 Gäste-Infos {(guestOrigin || ageGroup || partySize || groupType || guestCountry || guestSource || guestNotes) ? '✓' : '(optional)'}</span>
             <span>{showGuest ? '▼' : '▶'}</span>
           </button>
           {showGuest && (
@@ -456,6 +466,30 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                   background: '#F5F2EC', border: '1px solid #E5E0D8', borderRadius: '8px',
                   padding: '8px 12px', width: '100px', fontSize: '14px', color: '#1A1207', outline: 'none',
                 }} />
+              </div>
+
+              {/* Herkunftsland */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>🌍 Herkunftsland</label>
+                <input type="text" value={guestCountry} onChange={e => setGuestCountry(e.target.value)}
+                  placeholder="z.B. Deutschland, Österreich…"
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${guestCountry ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }} />
+              </div>
+
+              {/* Wie aufmerksam geworden */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>📣 Wie aufmerksam geworden?</label>
+                <input type="text" value={guestSource} onChange={e => setGuestSource(e.target.value)}
+                  placeholder="z.B. Google, Instagram, Empfehlung…"
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${guestSource ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }} />
+              </div>
+
+              {/* Weitere Notizen */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>📝 Weitere Notizen</label>
+                <textarea value={guestNotes} onChange={e => setGuestNotes(e.target.value)}
+                  placeholder="Alles weitere zu diesen Gästen…" rows={2}
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${guestNotes ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none', resize: 'none' }} />
               </div>
 
               {existingOrder && (
