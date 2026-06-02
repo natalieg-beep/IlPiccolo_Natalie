@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type Table = { id: string; label: string; location: string; note: string | null }
+type Table = { id: string; label: string; location: string }
 
 const STATUS_STYLE: Record<string, { bg: string; border: string; dot: string; label: string }> = {
   open:        { bg: '#F0FAF0', border: '#4CAF50', dot: '#4CAF50', label: 'Offen' },
@@ -26,8 +26,10 @@ export default function TablesClient({
     router.push('/login')
   }
 
-  const outside = tables.filter(t => t.location === 'outside')
-  const inside = tables.filter(t => t.location === 'inside')
+  const outside  = tables.filter(t => t.location === 'outside')
+  const inside   = tables.filter(t => t.location === 'inside')
+  const takeaway = tables.filter(t => t.location === 'takeaway')
+  const privat   = tables.filter(t => t.location === 'privat')
 
   function TableBtn({ t }: { t: Table }) {
     const status = tableStatus[t.id]
@@ -52,11 +54,6 @@ export default function TablesClient({
           {status && (
             <div style={{ fontSize: '10px', color: style?.dot, marginTop: '3px', fontWeight: '700' }}>
               ● {style?.label}
-            </div>
-          )}
-          {t.note && (
-            <div style={{ fontSize: '10px', color: '#B8882A', marginTop: '3px' }} title={t.note}>
-              📝
             </div>
           )}
         </div>
@@ -115,11 +112,58 @@ export default function TablesClient({
         <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#8A7A60', marginBottom: '10px' }}>
           Innen
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
           {inside.map(t => <TableBtn key={t.id} t={t} />)}
         </div>
 
-        <div style={{ marginTop: '14px', fontSize: '12px', color: '#B0A898', display: 'flex', gap: '16px' }}>
+        {/* TakeAway + Privat */}
+        {(takeaway.length > 0 || privat.length > 0) && (
+          <>
+            <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#8A7A60', marginBottom: '10px' }}>
+              Sonstiges
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '20px' }}>
+              {takeaway.map(t => (
+                <Link key={t.id} href={`/service/tisch/${t.id}`} style={{ textDecoration: 'none' }}>
+                  <div style={{
+                    background: tableStatus[t.id] ? STATUS_STYLE[tableStatus[t.id]]?.bg ?? '#FFFFFF' : '#FFFFFF',
+                    border: `2px solid ${tableStatus[t.id] ? STATUS_STYLE[tableStatus[t.id]]?.border ?? '#E5E0D8' : '#E5E0D8'}`,
+                    borderRadius: '16px', padding: '16px 8px', textAlign: 'center', cursor: 'pointer',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                  }}>
+                    <div style={{ fontSize: '26px' }}>🥡</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A', marginTop: '4px' }}>TakeAway</div>
+                    {tableStatus[t.id] && (
+                      <div style={{ fontSize: '10px', color: STATUS_STYLE[tableStatus[t.id]]?.dot, marginTop: '3px', fontWeight: '700' }}>
+                        ● {STATUS_STYLE[tableStatus[t.id]]?.label}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))}
+              {privat.map(t => (
+                <Link key={t.id} href={`/service/tisch/${t.id}`} style={{ textDecoration: 'none' }}>
+                  <div style={{
+                    background: tableStatus[t.id] ? STATUS_STYLE[tableStatus[t.id]]?.bg ?? '#FFF8EC' : '#FFF8EC',
+                    border: `2px solid ${tableStatus[t.id] ? STATUS_STYLE[tableStatus[t.id]]?.border ?? '#E8C878' : '#E8C878'}`,
+                    borderRadius: '16px', padding: '16px 8px', textAlign: 'center', cursor: 'pointer',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                  }}>
+                    <div style={{ fontSize: '26px' }}>🏠</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A', marginTop: '4px' }}>Privat Essen</div>
+                    {tableStatus[t.id] && (
+                      <div style={{ fontSize: '10px', color: STATUS_STYLE[tableStatus[t.id]]?.dot, marginTop: '3px', fontWeight: '700' }}>
+                        ● {STATUS_STYLE[tableStatus[t.id]]?.label}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div style={{ marginTop: '4px', fontSize: '12px', color: '#B0A898', display: 'flex', gap: '16px' }}>
           <span>● <span style={{ color: '#4CAF50' }}>Offen</span></span>
           <span>● <span style={{ color: '#1976D2' }}>Übertragen</span></span>
           <span style={{ color: '#C8C0B8' }}>○ Frei</span>

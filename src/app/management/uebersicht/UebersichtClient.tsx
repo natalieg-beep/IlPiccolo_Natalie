@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -63,6 +63,42 @@ export default function UebersichtClient({
 
   const [orders,   setOrders]   = useState<Order[]>(initialOrders)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  // ── Tagesabschluss ───────────────────────────────────────────────
+  const [beko,       setBeko]       = useState('')
+  const [menulux,    setMenulux]    = useState('')
+  const [abschlussId, setAbschlussId] = useState<{ beko?: string; menulux?: string }>({})
+  const [abschlussSaved, setAbschlussSaved] = useState(false)
+
+  useEffect(() => {
+    supabase.from('daily_entries').select('*').eq('date', date)
+      .in('entry_type', ['beko_total', 'menulux_total'])
+      .then(({ data }) => {
+        data?.forEach(e => {
+          if (e.entry_type === 'beko_total')    { setBeko(e.amount?.toString() ?? '');    setAbschlussId(p => ({ ...p, beko: e.id })) }
+          if (e.entry_type === 'menulux_total') { setMenulux(e.amount?.toString() ?? ''); setAbschlussId(p => ({ ...p, menulux: e.id })) }
+        })
+      })
+  }, [date])
+
+  async function saveAbschluss() {
+    async function upsertEntry(type: string, amount: number, existingId?: string) {
+      if (existingId) {
+        await supabase.from('daily_entries').update({ amount }).eq('id', existingId)
+        return existingId
+      } else {
+        const { data } = await supabase.from('daily_entries').insert({ date, entry_type: type, amount }).select('id').single()
+        return data?.id
+      }
+    }
+    const [bekoId, menuluxId] = await Promise.all([
+      upsertEntry('beko_total',    parseInt(beko)    || 0, abschlussId.beko),
+      upsertEntry('menulux_total', parseInt(menulux) || 0, abschlussId.menulux),
+    ])
+    setAbschlussId({ beko: bekoId, menulux: menuluxId })
+    setAbschlussSaved(true)
+    setTimeout(() => setAbschlussSaved(false), 2000)
+  }
 
   const today = new Date().toISOString().slice(0, 10)
   const isToday = date === today
@@ -275,6 +311,75 @@ export default function UebersichtClient({
             })}
           </div>
         )}
+
+        {/* ── Tagesabschluss ── */}
+        <div style={{ marginTop: '24px', background: '#FFFFFF', border: '2px solid #B8882A', borderRadius: '14px', overflow: 'hidden' }}>
+          <div style={{ background: '#FFF8EC', padding: '12px 16px', borderBottom: '1px solid #E8C878' }}>
+            <div style={{ fontSize: '15px', fontWeight: '700', color: '#B8882A' }}>📋 Tagesabschluss</div>
+            <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '2px' }}>{formatDate(date)}</div>
+          </div>
+          <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+            {/* App-Umsatz */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: '#F5F2EC', borderRadius: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#5A5040' }}>📱 App (offiziell)</span>
+              <span style={{ fontSize: '16px', fontWeight: '800', color: '#B8882A' }}>{totalRevenue.toLocaleString('de-DE')} ₺</span>
+            </div>
+
+            {/* Beko */}
+            <div>
+              <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>🏦 Beko Einnahmen</label>
+              <input
+                type="number" min="0" placeholder="Betrag in ₺"
+                value={beko} onChange={e => setBeko(e.target.value)}
+                style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${beko ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }}
+              />
+            </div>
+
+            {/* Menulux */}
+            <div>
+              <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>🍽️ Menulux Einnahmen</label>
+              <input
+                type="number" min="0" placeholder="Betrag in ₺"
+                value={menulux} onChange={e => setMenulux(e.target.value)}
+                style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${menulux ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }}
+              />
+            </div>
+
+            {/* Gesamtsumme */}
+            {(beko || menulux) && (
+              <div style={{ background: '#F0FAF0', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '12px 14px' }}>
+                <div style={{ fontSize: '12px', color: '#2E7D32', fontWeight: '600', marginBottom: '8px' }}>Zusammenfassung</div>
+                {[
+                  { label: '🏦 Beko',         value: parseInt(beko) || 0 },
+                  { label: '🍽️ Menulux',      value: parseInt(menulux) || 0 },
+                ].map(r => (
+                  <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '2px 0' }}>
+                    <span style={{ color: '#5A5040' }}>{r.label}</span>
+                    <span style={{ fontWeight: '600', color: '#1A1207' }}>{r.value.toLocaleString('de-DE')} ₺</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: '800', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #A5D6A7' }}>
+                  <span style={{ color: '#2E7D32' }}>Gesamt</span>
+                  <span style={{ color: '#2E7D32' }}>{((parseInt(beko) || 0) + (parseInt(menulux) || 0)).toLocaleString('de-DE')} ₺</span>
+                </div>
+                {beko && menulux && (
+                  <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '6px' }}>
+                    Differenz zur App: {Math.abs(totalRevenue - ((parseInt(beko) || 0) + (parseInt(menulux) || 0))).toLocaleString('de-DE')} ₺
+                    {totalRevenue > (parseInt(beko) || 0) + (parseInt(menulux) || 0) ? ' (App höher)' : ' (Kasse höher)'}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button onClick={saveAbschluss} style={{
+              background: '#B8882A', color: '#FFFFFF', border: 'none',
+              borderRadius: '10px', padding: '12px', fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+            }}>
+              {abschlussSaved ? '✓ Gespeichert!' : '💾 Tagesabschluss speichern'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Print-Styles */}
