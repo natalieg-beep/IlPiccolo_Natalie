@@ -70,12 +70,37 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
   const [guestSource,  setGuestSource]  = useState(existingOrder?.guest_source  ?? '')
   const [guestNotes,   setGuestNotes]   = useState(existingOrder?.guest_notes   ?? '')
 
+  // ── Sonstiges (manuelle Einträge) ────────────────────────────────
+  const [customPrices, setCustomPrices] = useState<Record<string, number>>(() => {
+    const m: Record<string, number> = {}
+    existingOrder?.order_items.forEach(i => {
+      if (!MENU.find(mi => mi.name === i.name)) m[i.name] = i.unit_price
+    })
+    return m
+  })
+  const [newItemName,  setNewItemName]  = useState('')
+  const [newItemPrice, setNewItemPrice] = useState('')
+
+  function getPrice(name: string) {
+    return customPrices[name] ?? MENU.find(m => m.name === name)?.price ?? 0
+  }
+
+  function addCustomItem() {
+    const n = newItemName.trim()
+    const p = parseInt(newItemPrice)
+    if (!n || !p) return
+    setCustomPrices(prev => ({ ...prev, [n]: p }))
+    setItems(prev => ({ ...prev, [n]: (prev[n] ?? 0) + 1 }))
+    setNewItemName('')
+    setNewItemPrice('')
+  }
+
   // ── Berechnungen ─────────────────────────────────────────────────
   const totalCount     = Object.values(items).reduce((a, b) => a + b, 0)
   const grossPrice     = Object.entries(items).reduce((sum, [name, qty]) =>
-    sum + (MENU.find(m => m.name === name)?.price ?? 0) * qty, 0)
+    sum + getPrice(name) * qty, 0)
   const houseTotal     = Object.entries(items).reduce((sum, [name, qty]) =>
-    onTheHouse.has(name) ? sum + (MENU.find(m => m.name === name)?.price ?? 0) * qty : sum, 0)
+    onTheHouse.has(name) ? sum + getPrice(name) * qty : sum, 0)
   const chargeableBase = grossPrice - houseTotal
   const totalPrice     = Math.round(chargeableBase * (1 - discount / 100))
 
@@ -136,7 +161,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
     await supabase.from('order_items').insert(
       entries.map(([name, qty]) => ({
         order_id: orderId, name, qty,
-        unit_price: MENU.find(m => m.name === name)?.price ?? 0,
+        unit_price: getPrice(name),
         on_the_house: onTheHouse.has(name),
       }))
     )
@@ -261,6 +286,34 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                   </div>
                 </div>
               ))
+            ) : selectedCat === 'sonstiges' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {/* Eingabeform */}
+                <div style={{ ...S.card, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontSize: '12px', color: '#8A7A60', fontWeight: '600' }}>✏️ Produkt manuell eintragen</div>
+                  <input
+                    type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)}
+                    placeholder="z.B. Experimental Pizza, Tagesspecial…"
+                    style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${newItemName ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '9px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }}
+                  />
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="number" value={newItemPrice} onChange={e => setNewItemPrice(e.target.value)}
+                      placeholder="Preis (₺)" min="1"
+                      style={{ flex: 1, background: '#F5F2EC', border: `1px solid ${newItemPrice ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '9px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }}
+                    />
+                    <button onClick={addCustomItem} disabled={!newItemName.trim() || !newItemPrice} style={{
+                      background: newItemName.trim() && newItemPrice ? '#B8882A' : '#E5E0D8',
+                      color: '#FFFFFF', border: 'none', borderRadius: '8px',
+                      padding: '9px 16px', fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+                    }}>+ Hinzufügen</button>
+                  </div>
+                </div>
+                {/* Bereits hinzugefügte Sonstiges-Einträge */}
+                {Object.keys(items).filter(name => !!customPrices[name]).map(name => (
+                  <ProductRow key={name} item={{ name, desc: '', price: customPrices[name] }} qty={items[name] ?? 0} onChange={changeQty} />
+                ))}
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {MENU.filter(m => m.category === selectedCat).map(item => (
@@ -279,7 +332,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
             {/* Artikel-Liste mit 🎁-Button */}
             <div style={{ background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px', overflow: 'hidden' }}>
               {Object.entries(items).map(([name, qty], i, arr) => {
-                const price   = (MENU.find(m => m.name === name)?.price ?? 0) * qty
+                const price   = getPrice(name) * qty
                 const isHouse = onTheHouse.has(name)
                 return (
                   <div key={name} style={{

@@ -75,11 +75,12 @@ export const MENU: MenuItem[] = [
 ]
 
 export const CATEGORIES = [
-  { key: 'pizza',   label: 'Pizzalar',  icon: '🍕' },
-  { key: 'extra',   label: 'Ekstralar', icon: '➕' },
-  { key: 'dessert', label: 'Tatlılar',  icon: '🍫' },
-  { key: 'drink',   label: 'İçecekler', icon: '🥤' },
-  { key: 'coffee',  label: 'Kahveler',  icon: '☕' },
+  { key: 'pizza',     label: 'Pizzalar',   icon: '🍕' },
+  { key: 'extra',     label: 'Ekstralar',  icon: '➕' },
+  { key: 'dessert',   label: 'Tatlılar',   icon: '🍫' },
+  { key: 'drink',     label: 'İçecekler',  icon: '🥤' },
+  { key: 'coffee',    label: 'Kahveler',   icon: '☕' },
+  { key: 'sonstiges', label: 'Sonstiges',  icon: '✏️' },
 ]
 
 // Sub-group labels for extras display
