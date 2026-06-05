@@ -45,6 +45,7 @@ export default async function ManagementPage() {
       stat: `${officialRevenue.toLocaleString('de-DE')} ₺`,
       statLabel: 'heute offiziell',
       highlight: true,
+      disabled: false,
     },
     {
       label: 'Bestellungen',
@@ -54,42 +55,37 @@ export default async function ManagementPage() {
       stat: orderCount.toString(),
       statLabel: `heute · ${openCount ?? 0} offen`,
       highlight: false,
+      disabled: false,
     },
     {
       label: 'Tagesabschluss',
       icon: '📋',
-      desc: 'Beko · Menulux · KDV · Entnahmen',
+      desc: 'Beko · Menulux · KDV · Trinkgeld · Entnahmen',
       href: '/management/tagesabschluss',
       stat: null,
       statLabel: null,
       highlight: false,
-    },
-    {
-      label: 'Tages-Kasse',
-      icon: '💰',
-      desc: 'Trinkgeld · Schwarz-Bar · Notizen',
-      href: '/management/kasse',
-      stat: null,
-      statLabel: null,
-      highlight: false,
+      disabled: false,
     },
     {
       label: 'Ausgaben',
       icon: '🧾',
-      desc: 'Belege · Wareneinstand',
+      desc: 'Belege · Wareneinstand (kommt bald)',
       href: '/management/ausgaben',
       stat: null,
       statLabel: null,
       highlight: false,
+      disabled: true,
     },
     {
       label: 'Fixkosten',
       icon: '📌',
-      desc: 'Monatliche laufende Kosten',
+      desc: 'Monatliche Kosten (kommt bald)',
       href: '/management/fixkosten',
       stat: null,
       statLabel: null,
       highlight: false,
+      disabled: true,
     },
   ]
 
@@ -110,34 +106,39 @@ export default async function ManagementPage() {
       </div>
 
       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {cards.map(item => (
-          <Link key={item.label} href={item.href} style={{ textDecoration: 'none' }}>
+        {cards.map(item => {
+          const inner = (
             <div style={{
-              background: item.highlight ? '#FFF8EC' : '#FFFFFF',
-              border: `1.5px solid ${item.highlight ? '#B8882A' : '#E5E0D8'}`,
-              borderRadius: '14px', padding: '16px 18px', cursor: 'pointer',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+              background: item.disabled ? '#F5F2EC' : item.highlight ? '#FFF8EC' : '#FFFFFF',
+              border: `1.5px solid ${item.disabled ? '#E5E0D8' : item.highlight ? '#B8882A' : '#E5E0D8'}`,
+              borderRadius: '14px', padding: '16px 18px',
+              cursor: item.disabled ? 'default' : 'pointer',
+              boxShadow: item.disabled ? 'none' : '0 1px 4px rgba(0,0,0,0.05)',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              opacity: item.disabled ? 0.5 : 1,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <span style={{ fontSize: '26px' }}>{item.icon}</span>
                 <div>
-                  <div style={{ fontSize: '15px', fontWeight: '700', color: item.highlight ? '#B8882A' : '#1A1207' }}>{item.label}</div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: item.disabled ? '#8A7A60' : item.highlight ? '#B8882A' : '#1A1207' }}>{item.label}</div>
                   <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>{item.desc}</div>
                 </div>
               </div>
-              {item.stat !== null && (
+              {item.stat !== null && !item.disabled && (
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '18px', fontWeight: '800', color: '#B8882A' }}>{item.stat}</div>
                   <div style={{ fontSize: '10px', color: '#8A7A60' }}>{item.statLabel}</div>
                 </div>
               )}
-              {item.stat === null && (
+              {item.stat === null && !item.disabled && (
                 <span style={{ fontSize: '18px', color: '#C8C0B4' }}>→</span>
               )}
             </div>
-          </Link>
-        ))}
+          )
+          return item.disabled
+            ? <div key={item.label}>{inner}</div>
+            : <Link key={item.label} href={item.href} style={{ textDecoration: 'none' }}>{inner}</Link>
+        })}
       </div>
     </div>
   )

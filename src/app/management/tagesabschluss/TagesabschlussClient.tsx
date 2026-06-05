@@ -58,6 +58,8 @@ export default function TagesabschlussClient({
 
   const [barOffiziell, setBarOffiziell] = useState('')
 
+  const [trinkgeld,             setTrinkgeld]             = useState('')
+
   const [entnahmePrivat,        setEntnahmePrivat]        = useState('')
   const [entnahmePrivatNote,    setEntnahmePrivatNote]    = useState('')
   const [entnahmeGeschaeft,     setEntnahmeGeschaeft]     = useState('')
@@ -83,6 +85,7 @@ export default function TagesabschlussClient({
         setBeko2Brutto(amt); setBeko2Kdv(kdv || kdvAuto(amt))
       }
       if (e.entry_type === 'bar_offiziell')     setBarOffiziell(amt)
+      if (e.entry_type === 'trinkgeld')         setTrinkgeld(amt)
       if (e.entry_type === 'entnahme_privat')   { setEntnahmePrivat(amt); setEntnahmePrivatNote(e.note ?? '') }
       if (e.entry_type === 'entnahme_geschaeft'){ setEntnahmeGeschaeft(amt); setEntnahmeGeschaeftNote(e.note ?? '') }
     })
@@ -115,11 +118,12 @@ export default function TagesabschlussClient({
       upsert('beko1_brutto',   parseFloat(beko1Brutto)   || 0, { kdv: parseFloat(beko1Kdv)   || 0 }),
       upsert('beko2_brutto',   parseFloat(beko2Brutto)   || 0, { kdv: parseFloat(beko2Kdv)   || 0 }),
       upsert('bar_offiziell',  parseFloat(barOffiziell)  || 0),
+      upsert('trinkgeld',          parseFloat(trinkgeld)        || 0),
       upsert('entnahme_privat',   parseFloat(entnahmePrivat)   || 0, { note: entnahmePrivatNote || null }),
       upsert('entnahme_geschaeft',parseFloat(entnahmeGeschaeft)|| 0, { note: entnahmeGeschaeftNote || null }),
     ])
 
-    const types = ['menulux_brutto','beko1_brutto','beko2_brutto','bar_offiziell','entnahme_privat','entnahme_geschaeft']
+    const types = ['menulux_brutto','beko1_brutto','beko2_brutto','bar_offiziell','trinkgeld','entnahme_privat','entnahme_geschaeft']
     const newIds = { ...ids }
     results.forEach((id, i) => { if (id) newIds[types[i]] = id })
     setIds(newIds)
@@ -139,7 +143,8 @@ export default function TagesabschlussClient({
   const b1Kdv = parseFloat(beko1Kdv)   || 0
   const b2Kdv = parseFloat(beko2Kdv)   || 0
 
-  const totalBrutto   = mlBrutto + b1Brutto + b2Brutto + barOff + schwarzBarFromOrders
+  const trinkgeldN    = parseFloat(trinkgeld) || 0
+  const totalBrutto   = mlBrutto + b1Brutto + b2Brutto + barOff + schwarzBarFromOrders + trinkgeldN
   const totalKdv      = mlKdv + b1Kdv + b2Kdv
   const totalNet      = totalBrutto - totalKdv
   const totalEntnahme = entPriv + entGesch
@@ -268,6 +273,16 @@ export default function TagesabschlussClient({
           />
         </div>
 
+        {/* Trinkgeld */}
+        <div style={S.section}>
+          <div style={S.sectionTitle}>🙏 Trinkgeld</div>
+          <div style={S.label}>Betrag in ₺</div>
+          <input type="number" min="0" placeholder="z.B. 150"
+            value={trinkgeld} onChange={e => setTrinkgeld(e.target.value)}
+            style={inp(!!trinkgeld)}
+          />
+        </div>
+
         {/* Bar Freunde (aus App) */}
         <div style={{ background: '#F0FAF0', border: '1px solid #A5D6A7', borderRadius: '12px', padding: '12px 14px', marginBottom: '12px' }}>
           <div style={{ fontSize: '13px', fontWeight: '700', color: '#2E7D32', marginBottom: '4px' }}>🤝 Bar Freunde (aus App)</div>
@@ -312,8 +327,9 @@ export default function TagesabschlussClient({
               { label: '🍽️ Menulux',        brutto: mlBrutto, kdv: mlKdv },
               { label: '🏦 Beko 1',           brutto: b1Brutto, kdv: b1Kdv },
               { label: '🏦 Beko 2',           brutto: b2Brutto, kdv: b2Kdv },
-              { label: '💵 Bar offiziell',    brutto: barOff,   kdv: 0 },
+              { label: '💵 Bar offiziell',    brutto: barOff,               kdv: 0 },
               { label: '🤝 Bar Freunde',      brutto: schwarzBarFromOrders, kdv: 0 },
+              { label: '🙏 Trinkgeld',        brutto: trinkgeldN,           kdv: 0 },
             ].filter(r => r.brutto > 0).map(r => (
               <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '3px 0', borderBottom: '1px solid #F5F2EC' }}>
                 <span style={{ color: '#5A5040' }}>{r.label}</span>

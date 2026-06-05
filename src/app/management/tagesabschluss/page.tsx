@@ -21,7 +21,7 @@ export default async function TagesabschlussPage({
     .eq('date', date)
     .in('entry_type', [
       'menulux_brutto', 'beko1_brutto', 'beko2_brutto',
-      'bar_offiziell', 'entnahme_privat', 'entnahme_geschaeft',
+      'bar_offiziell', 'trinkgeld', 'entnahme_privat', 'entnahme_geschaeft',
       // legacy
       'menulux_total', 'beko_total',
     ])
