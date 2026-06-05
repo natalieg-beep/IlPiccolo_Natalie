@@ -71,19 +71,10 @@ export default async function EinnahmenPage({
     .lte('date', endDate)
     .in('entry_type', ['menulux_brutto', 'menulux_total', 'beko1_brutto', 'beko_total', 'beko2_brutto'])
 
-  type Order = {
-    id: string
-    payment_method: string | null
-    discount_percent: number | null
-    discount_amount: number | null
-    party_size: number | null
-    tables: { label: string; location: string } | null
-    order_items: { unit_price: number; qty: number; on_the_house: boolean }[]
-  }
-
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (
     <EinnahmenClient
-      orders={(orders ?? []) as Order[]}
+      orders={(orders ?? []) as any}
       entries={entries ?? []}
       period={period}
       offset={offset}
