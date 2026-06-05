@@ -122,9 +122,10 @@ export default function UebersichtClient({
   const today = new Date().toISOString().slice(0, 10)
   const isToday = date === today
 
-  const totalRevenue = orders.reduce((s, o) => s + orderRevenue(o), 0)
-  const schwarzTotal = orders
-    .filter(o => (o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar') && o.tables?.location !== 'privat')
+  const nonPrivatOrders = orders.filter(o => o.tables?.location !== 'privat')
+  const totalRevenue = nonPrivatOrders.reduce((s, o) => s + orderRevenue(o), 0)
+  const schwarzTotal = nonPrivatOrders
+    .filter(o => o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar')
     .reduce((s, o) => s + orderGross(o), 0)
 
   async function deleteOrder(id: string) {
@@ -227,8 +228,8 @@ export default function UebersichtClient({
         {/* Zusammenfassung */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '12px' }}>
           {[
-            { label: 'Bestellungen',          value: orders.length,                             unit: '' },
-            { label: 'Tische bedient',         value: new Set(orders.map(o => o.tables?.label)).size, unit: '' },
+            { label: 'Bestellungen',          value: nonPrivatOrders.length,                             unit: '' },
+            { label: 'Tische bedient',         value: new Set(nonPrivatOrders.map(o => o.tables?.label)).size, unit: '' },
             { label: 'Umsatz offiziell',       value: totalRevenue.toLocaleString('de-DE'),     unit: ' ₺' },
             { label: 'Freunde/Fam. (schwarz)', value: schwarzTotal.toLocaleString('de-DE'),     unit: ' ₺' },
           ].map(s => (
