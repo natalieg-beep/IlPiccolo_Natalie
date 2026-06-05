@@ -240,31 +240,38 @@ export default function EinnahmenClient({
           )}
         </div>
 
-        {/* Menulux + Beko */}
-        {(menuluxBrutto > 0 || beko1Brutto > 0 || beko2Brutto > 0) && (
+        {/* Gerätekasse: Menulux = Gesamt, Beko = davon Karte */}
+        {menuluxBrutto > 0 && (
           <div style={card}>
             <div style={sectionTitle}>Gerätekasse</div>
-            {[
-              { label: '🍽️ Menulux', brutto: menuluxBrutto, kdv: menuluxKdv },
-              { label: '🏦 Beko 1',   brutto: beko1Brutto,   kdv: beko1Kdv },
-              { label: '🏦 Beko 2',   brutto: beko2Brutto,   kdv: beko2Brutto / 11 },
-            ].filter(r => r.brutto > 0).map(r => (
-              <div key={r.label} style={row()}>
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1A1207' }}>{r.label}</div>
-                  <div style={{ fontSize: '11px', color: '#8A7A60' }}>
-                    Net: {fmt(r.brutto - r.kdv)} ₺ · KDV: {fmt(r.kdv)} ₺
-                  </div>
+            <div style={row()}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1A1207' }}>🍽️ Menulux (Gesamtumsatz)</div>
+                <div style={{ fontSize: '11px', color: '#8A7A60' }}>
+                  Net: {fmt(menuluxBrutto - menuluxKdv)} ₺ · KDV: {fmt(menuluxKdv)} ₺
                 </div>
-                <span style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A' }}>{fmt(r.brutto)} ₺</span>
               </div>
-            ))}
-            {(menuluxBrutto + beko1Brutto + beko2Brutto) > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: '800', color: '#B8882A', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #E8C878' }}>
-                <span>Gesamt Gerätekasse</span>
-                <span>{fmt(menuluxBrutto + beko1Brutto + beko2Brutto)} ₺</span>
-              </div>
-            )}
+              <span style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A' }}>{fmt(menuluxBrutto)} ₺</span>
+            </div>
+            {(beko1Brutto + beko2Brutto) > 0 && (() => {
+              const bekoTotal = beko1Brutto + beko2Brutto
+              const barReal   = Math.max(0, menuluxBrutto - bekoTotal)
+              return (
+                <>
+                  <div style={{ ...row(), paddingLeft: '12px' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#1565C0', fontWeight: '600' }}>↳ 💳 davon Karte (Beko)</div>
+                      <div style={{ fontSize: '10px', color: '#8A7A60' }}>Teilmenge von Menulux</div>
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#1565C0' }}>{fmt(bekoTotal)} ₺</span>
+                  </div>
+                  <div style={{ ...row(), paddingLeft: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#2E7D32', fontWeight: '600' }}>↳ 💵 davon Bar (Menulux − Beko)</div>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#2E7D32' }}>{fmt(barReal)} ₺</span>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
 
@@ -279,15 +286,15 @@ export default function EinnahmenClient({
           </div>
         )}
 
-        {/* Differenz App ↔ Gerätekasse */}
-        {(menuluxBrutto > 0 || beko1Brutto > 0 || beko2Brutto > 0) && (
+        {/* Differenz App ↔ Menulux (nur Menulux als Vergleich, Beko ist Teilmenge) */}
+        {menuluxBrutto > 0 && (
           <div style={{
             background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px',
             padding: '14px', marginBottom: '10px',
           }}>
             <div style={sectionTitle}>📐 Differenz App ↔ Gerätekasse</div>
             {(() => {
-              const geraetTotal = menuluxBrutto + beko1Brutto + beko2Brutto
+              const geraetTotal = menuluxBrutto  // Menulux = Gesamt (Beko ist Teilmenge!)
               const diff = geraetTotal - officialRevenue
               const isOver = diff > 0
               return (
@@ -310,9 +317,9 @@ export default function EinnahmenClient({
                     <span>{diff > 0 ? '+' : ''}{fmt(diff)} ₺</span>
                   </div>
                   <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '6px' }}>
-                    {diff === 0 && '✅ App und Gerätekasse stimmen überein'}
-                    {isOver && diff > 0 && `⚠️ ${fmt(diff)} ₺ in Gerätekasse aber nicht in App erfasst`}
-                    {!isOver && diff < 0 && `ℹ️ App zeigt ${fmt(Math.abs(diff))} ₺ mehr als Gerätekasse`}
+                    {diff === 0 && '✅ App und Menulux stimmen überein'}
+                    {isOver && diff > 0 && `⚠️ ${fmt(diff)} ₺ in Menulux aber nicht in App erfasst`}
+                    {!isOver && diff < 0 && `ℹ️ App zeigt ${fmt(Math.abs(diff))} ₺ mehr als Menulux`}
                   </div>
                 </>
               )

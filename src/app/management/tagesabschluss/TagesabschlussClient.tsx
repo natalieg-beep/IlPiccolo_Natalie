@@ -132,23 +132,25 @@ export default function TagesabschlussClient({
   }
 
   // ── Berechnungen ─────────────────────────────────────────────────
+  // LOGIK: Menulux = Gesamtumsatz (Karte wird dort als Bar gebucht)
+  //        Beko = nur Kartenzahlungen (Teilmenge von Menulux, NICHT addieren!)
+  //        Bar tatsächlich = Menulux - Beko
   const mlBrutto = parseFloat(menuluxBrutto) || 0
   const b1Brutto = parseFloat(beko1Brutto)   || 0
   const b2Brutto = parseFloat(beko2Brutto)   || 0
-  const barOff   = parseFloat(barOffiziell)  || 0
   const entPriv  = parseFloat(entnahmePrivat)   || 0
   const entGesch = parseFloat(entnahmeGeschaeft)|| 0
 
   const mlKdv = parseFloat(menuluxKdv) || 0
-  const b1Kdv = parseFloat(beko1Kdv)   || 0
-  const b2Kdv = parseFloat(beko2Kdv)   || 0
 
-  const trinkgeldN    = parseFloat(trinkgeld) || 0
-  const totalBrutto   = mlBrutto + b1Brutto + b2Brutto + barOff + schwarzBarFromOrders + trinkgeldN
-  const totalKdv      = mlKdv + b1Kdv + b2Kdv
-  const totalNet      = totalBrutto - totalKdv
-  const totalEntnahme = entPriv + entGesch
-  const netto         = totalBrutto - totalEntnahme
+  const trinkgeldN     = parseFloat(trinkgeld) || 0
+  const bekoKarte      = b1Brutto + b2Brutto              // Kartenzahlungen (Teilmenge)
+  const barTatsaechlich = Math.max(0, mlBrutto - bekoKarte) // Bar = Menulux - Beko
+  const totalBrutto    = mlBrutto + schwarzBarFromOrders + trinkgeldN  // Menulux ist Gesamt!
+  const totalKdv       = mlKdv                             // KDV nur aus Menulux
+  const totalNet       = totalBrutto - totalKdv
+  const totalEntnahme  = entPriv + entGesch
+  const netto          = totalBrutto - totalEntnahme
 
   const S = {
     section: { background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px', padding: '14px', marginBottom: '12px' },
@@ -249,28 +251,40 @@ export default function TagesabschlussClient({
           setBrutto={setMenuluxBrutto} setKdv={setMenuluxKdv}
         />
 
-        {/* Beko 1 */}
-        <BruttoKdvBlock
-          label="Beko Gerät 1" icon="🏦"
-          brutto={beko1Brutto} kdv={beko1Kdv}
-          setBrutto={setBeko1Brutto} setKdv={setBeko1Kdv}
-        />
-
-        {/* Beko 2 */}
-        <BruttoKdvBlock
-          label="Beko Gerät 2" icon="🏦"
-          brutto={beko2Brutto} kdv={beko2Kdv}
-          setBrutto={setBeko2Brutto} setKdv={setBeko2Kdv}
-        />
-
-        {/* Bar offiziell */}
+        {/* Beko = Kartenzahlungen */}
         <div style={S.section}>
-          <div style={S.sectionTitle}>💵 Bar offiziell</div>
-          <div style={S.label}>Betrag in ₺ (Bargeld offiziell)</div>
-          <input type="number" min="0" placeholder="z.B. 450"
-            value={barOffiziell} onChange={e => setBarOffiziell(e.target.value)}
-            style={inp(!!barOffiziell)}
-          />
+          <div style={S.sectionTitle}>💳 Beko (= Kartenzahlungen)</div>
+          <div style={{ fontSize: '11px', color: '#8A7A60', marginBottom: '8px', background: '#FFF8EC', padding: '6px 10px', borderRadius: '6px' }}>
+            ℹ️ Beko erfasst nur Karte — ist eine Teilmenge von Menulux, wird nicht addiert
+          </div>
+          <div style={S.row as React.CSSProperties}>
+            <div style={{ flex: 1 }}>
+              <div style={S.label}>Beko 1 Brutto</div>
+              <input type="number" min="0" step="0.01" placeholder="z.B. 6271"
+                value={beko1Brutto} onChange={e => handleBrutto(setBeko1Brutto, setBeko1Kdv, e.target.value)}
+                style={inp(!!beko1Brutto)}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={S.label}>Beko 2 Brutto</div>
+              <input type="number" min="0" step="0.01" placeholder="optional"
+                value={beko2Brutto} onChange={e => handleBrutto(setBeko2Brutto, setBeko2Kdv, e.target.value)}
+                style={inp(!!beko2Brutto)}
+              />
+            </div>
+          </div>
+          {mlBrutto > 0 && (b1Brutto > 0 || b2Brutto > 0) && (
+            <div style={{ marginTop: '8px', padding: '8px', background: '#F0FAF0', borderRadius: '8px', fontSize: '13px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#5A5040' }}>💳 Karte (Beko gesamt)</span>
+                <span style={{ fontWeight: '700', color: '#1565C0' }}>{(b1Brutto + b2Brutto).toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                <span style={{ color: '#5A5040' }}>💵 Bar tatsächlich (Menulux − Beko)</span>
+                <span style={{ fontWeight: '700', color: '#2E7D32' }}>{barTatsaechlich.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Trinkgeld */}
@@ -318,46 +332,71 @@ export default function TagesabschlussClient({
         </div>
 
         {/* Zusammenfassung */}
-        {(mlBrutto || b1Brutto || b2Brutto || barOff) ? (
+        {mlBrutto > 0 && (
           <div style={{ background: '#FFFFFF', border: '2px solid #B8882A', borderRadius: '14px', padding: '14px', marginBottom: '16px' }}>
             <div style={{ fontSize: '14px', fontWeight: '700', color: '#B8882A', marginBottom: '10px' }}>📊 Zusammenfassung</div>
 
-            {/* Quellen */}
-            {[
-              { label: '🍽️ Menulux',        brutto: mlBrutto, kdv: mlKdv },
-              { label: '🏦 Beko 1',           brutto: b1Brutto, kdv: b1Kdv },
-              { label: '🏦 Beko 2',           brutto: b2Brutto, kdv: b2Kdv },
-              { label: '💵 Bar offiziell',    brutto: barOff,               kdv: 0 },
-              { label: '🤝 Bar Freunde',      brutto: schwarzBarFromOrders, kdv: 0 },
-              { label: '🙏 Trinkgeld',        brutto: trinkgeldN,           kdv: 0 },
-            ].filter(r => r.brutto > 0).map(r => (
-              <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '3px 0', borderBottom: '1px solid #F5F2EC' }}>
-                <span style={{ color: '#5A5040' }}>{r.label}</span>
-                <span style={{ color: '#1A1207', fontWeight: '600' }}>
-                  {r.brutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺
-                  {r.kdv > 0 && <span style={{ color: '#8A7A60', fontSize: '11px', marginLeft: '6px' }}>KDV: {r.kdv.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>}
-                </span>
-              </div>
-            ))}
-
-            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '2px solid #E8C878' }}>
-              {[
-                { label: 'Gesamt Brutto', value: totalBrutto, color: '#B8882A', big: true },
-                { label: 'Gesamt KDV',   value: totalKdv,    color: '#8A7A60', big: false },
-                { label: 'Gesamt Net',   value: totalNet,    color: '#1A1207', big: false },
-              ].map(r => (
-                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: r.big ? '16px' : '13px', fontWeight: r.big ? '800' : '600' }}>
-                  <span style={{ color: r.color }}>{r.label}</span>
-                  <span style={{ color: r.color }}>{r.value.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
-                </div>
-              ))}
+            {/* Menulux = Gesamt */}
+            <div style={{ fontSize: '13px', padding: '5px 0', borderBottom: '1px solid #F0EDE8', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#5A5040', fontWeight: '600' }}>🍽️ Menulux (Gesamtumsatz)</span>
+              <span style={{ fontWeight: '700', color: '#B8882A' }}>
+                {mlBrutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺
+                {mlKdv > 0 && <span style={{ color: '#8A7A60', fontSize: '11px', marginLeft: '6px' }}>KDV: {mlKdv.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>}
+              </span>
             </div>
 
+            {/* Aufschlüsselung Karte / Bar */}
+            {bekoKarte > 0 && (
+              <>
+                <div style={{ fontSize: '12px', padding: '3px 0 3px 12px', display: 'flex', justifyContent: 'space-between', color: '#5A5040' }}>
+                  <span>↳ 💳 davon Karte (Beko)</span>
+                  <span style={{ fontWeight: '600', color: '#1565C0' }}>{bekoKarte.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+                </div>
+                <div style={{ fontSize: '12px', padding: '3px 0 3px 12px', borderBottom: '1px solid #F0EDE8', display: 'flex', justifyContent: 'space-between', color: '#5A5040' }}>
+                  <span>↳ 💵 davon Bar</span>
+                  <span style={{ fontWeight: '600', color: '#2E7D32' }}>{barTatsaechlich.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+                </div>
+              </>
+            )}
+
+            {/* Zusätzlich */}
+            {schwarzBarFromOrders > 0 && (
+              <div style={{ fontSize: '13px', padding: '3px 0', borderBottom: '1px solid #F0EDE8', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#5A5040' }}>🤝 Bar Freunde (inoffiziell)</span>
+                <span style={{ fontWeight: '600', color: '#2E7D32' }}>{schwarzBarFromOrders.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+              </div>
+            )}
+            {trinkgeldN > 0 && (
+              <div style={{ fontSize: '13px', padding: '3px 0', borderBottom: '1px solid #F0EDE8', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#5A5040' }}>🙏 Trinkgeld</span>
+                <span style={{ fontWeight: '600', color: '#1A1207' }}>{trinkgeldN.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+              </div>
+            )}
+
+            {/* Gesamt */}
+            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '2px solid #E8C878' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '16px', fontWeight: '800', color: '#B8882A' }}>
+                <span>Gesamt Einnahmen</span>
+                <span>{totalBrutto.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+              </div>
+              {totalKdv > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#8A7A60', marginTop: '3px' }}>
+                  <span>davon KDV (Menulux)</span>
+                  <span>{totalKdv.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', color: '#1A1207', marginTop: '3px' }}>
+                <span>Net (ohne KDV)</span>
+                <span>{totalNet.toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</span>
+              </div>
+            </div>
+
+            {/* Entnahmen */}
             {totalEntnahme > 0 && (
               <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #F5F2EC' }}>
                 {[
-                  { label: '🏠 Privat-Entnahme',    value: entPriv },
-                  { label: '💼 Geschäftl. Entnahme', value: entGesch },
+                  { label: '🏠 Privat-Entnahme',     value: entPriv },
+                  { label: '💼 Geschäftl. Entnahme',  value: entGesch },
                 ].filter(r => r.value > 0).map(r => (
                   <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '2px 0', color: '#C62828' }}>
                     <span>{r.label}</span>
@@ -371,14 +410,14 @@ export default function TagesabschlussClient({
               </div>
             )}
 
-            {/* Differenz App ↔ Kasse */}
-            {appRevenue > 0 && totalBrutto > 0 && (
+            {/* Differenz App ↔ Menulux */}
+            {appRevenue > 0 && (
               <div style={{ marginTop: '8px', padding: '8px', background: '#F5F2EC', borderRadius: '8px', fontSize: '12px', color: '#8A7A60' }}>
-                Differenz App ↔ Gerätekasse: {Math.abs(appRevenue - (mlBrutto + b1Brutto + b2Brutto + barOff)).toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺
+                Differenz App ↔ Menulux: {Math.abs(appRevenue - mlBrutto).toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺
               </div>
             )}
           </div>
-        ) : null}
+        )}
 
       </div>
 
