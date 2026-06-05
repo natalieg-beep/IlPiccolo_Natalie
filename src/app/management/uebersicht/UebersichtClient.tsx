@@ -343,8 +343,19 @@ export default function UebersichtClient({
           </div>
         )}
 
-        {/* ── Tagesabschluss ── */}
-        <div style={{ marginTop: '24px', background: '#FFFFFF', border: '2px solid #B8882A', borderRadius: '14px', overflow: 'hidden' }}>
+        {/* ── Tagesabschluss Link ── */}
+        <Link href={`/management/tagesabschluss?date=${date}`} style={{ textDecoration: 'none' }}>
+          <div style={{ marginTop: '16px', background: '#FFF8EC', border: '2px solid #B8882A', borderRadius: '14px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+            <div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: '#B8882A' }}>📋 Tagesabschluss</div>
+              <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>Beko · Menulux · KDV · Entnahmen</div>
+            </div>
+            <span style={{ fontSize: '20px', color: '#B8882A' }}>→</span>
+          </div>
+        </Link>
+
+        {/* ── Tagesabschluss (Detail, verborgen – jetzt eigene Seite) ── */}
+        <div style={{ marginTop: '24px', background: '#FFFFFF', border: '2px solid #B8882A', borderRadius: '14px', overflow: 'hidden', display: 'none' }}>
           <div style={{ background: '#FFF8EC', padding: '12px 16px', borderBottom: '1px solid #E8C878' }}>
             <div style={{ fontSize: '15px', fontWeight: '700', color: '#B8882A' }}>📋 Tagesabschluss</div>
             <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '2px' }}>{formatDate(date)}</div>

@@ -15,8 +15,9 @@ export default function ManagementPage() {
 
       <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
         {[
-          { label: 'Tages-Kasse', icon: '💰', desc: 'Trinkgeld, Schwarz, Notizen', href: '/management/kasse' },
+          { label: 'Tagesabschluss', icon: '📋', desc: 'Beko, Menulux, KDV, Entnahmen', href: '/management/tagesabschluss' },
           { label: 'Übersicht', icon: '📊', desc: 'Bestellungen & Umsatz', href: '/management/uebersicht' },
+          { label: 'Tages-Kasse', icon: '💰', desc: 'Trinkgeld, Schwarz, Notizen', href: '/management/kasse' },
           { label: 'Ausgaben', icon: '🧾', desc: 'Belege, Wareneinstand, Privat', href: '/management/ausgaben' },
           { label: 'Fixkosten', icon: '📋', desc: 'Monatliche laufende Kosten', href: '/management/fixkosten' },
         ].map(item => (
