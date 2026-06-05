@@ -279,6 +279,47 @@ export default function EinnahmenClient({
           </div>
         )}
 
+        {/* Differenz App ↔ Gerätekasse */}
+        {(menuluxBrutto > 0 || beko1Brutto > 0 || beko2Brutto > 0) && (
+          <div style={{
+            background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px',
+            padding: '14px', marginBottom: '10px',
+          }}>
+            <div style={sectionTitle}>📐 Differenz App ↔ Gerätekasse</div>
+            {(() => {
+              const geraetTotal = menuluxBrutto + beko1Brutto + beko2Brutto
+              const diff = geraetTotal - officialRevenue
+              const isOver = diff > 0
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '3px 0', borderBottom: '1px solid #F5F2EC' }}>
+                    <span style={{ color: '#5A5040' }}>📱 App (offiziell)</span>
+                    <span style={{ fontWeight: '600', color: '#B8882A' }}>{fmt(officialRevenue)} ₺</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '3px 0', borderBottom: '1px solid #F5F2EC' }}>
+                    <span style={{ color: '#5A5040' }}>🏦 Gerätekasse gesamt</span>
+                    <span style={{ fontWeight: '600', color: '#1A1207' }}>{fmt(geraetTotal)} ₺</span>
+                  </div>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', fontSize: '15px',
+                    fontWeight: '800', marginTop: '8px', paddingTop: '8px',
+                    borderTop: '2px solid #E5E0D8',
+                    color: diff === 0 ? '#2E7D32' : '#C62828',
+                  }}>
+                    <span>Differenz</span>
+                    <span>{diff > 0 ? '+' : ''}{fmt(diff)} ₺</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '6px' }}>
+                    {diff === 0 && '✅ App und Gerätekasse stimmen überein'}
+                    {isOver && diff > 0 && `⚠️ ${fmt(diff)} ₺ in Gerätekasse aber nicht in App erfasst`}
+                    {!isOver && diff < 0 && `ℹ️ App zeigt ${fmt(Math.abs(diff))} ₺ mehr als Gerätekasse`}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        )}
+
         {/* Link zu Bestellungen */}
         <Link href={`/management/uebersicht?date=${startDate}`} style={{ textDecoration: 'none' }}>
           <div style={{ background: '#EEF4FF', border: '1px solid #90CAF9', borderRadius: '12px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
