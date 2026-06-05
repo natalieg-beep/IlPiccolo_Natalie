@@ -11,7 +11,8 @@ type OrderItem = { id: string; name: string; qty: number; unit_price: number; on
 type Order = {
   id: string; status: string; note: string | null
   guest_origin: string | null; age_group: string | null; party_size: number | null
-  discount_percent: number | null; payment_method: string | null; group_type: string | null
+  discount_percent: number | null; discount_amount: number | null
+  payment_method: string | null; group_type: string | null
   children_info: string | null
   guest_country: string | null; guest_source: string | null; guest_notes: string | null
   order_items: OrderItem[]
@@ -31,8 +32,14 @@ const S = {
   }),
 }
 
-export default function OrderClient({ table, existingOrder, backHref }: { table: Table; existingOrder: Order | null; backHref?: string }) {
-  const router  = useRouter()
+const LOCATION_LABEL: Record<string, string> = {
+  outside: 'Außen', inside: 'Innen', takeaway: '🥡 TakeAway', privat: '🏠 Privat',
+}
+
+export default function OrderClient({ table, existingOrder, backHref }: {
+  table: Table; existingOrder: Order | null; backHref?: string
+}) {
+  const router   = useRouter()
   const supabase = createClient()
 
   // ── Bestellung ──────────────────────────────────────────────────
@@ -48,29 +55,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
     return s
   })
   const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
 
-  // ── Rabatt & Zahlung ─────────────────────────────────────────────
-  const [discount,       setDiscount]       = useState(existingOrder?.discount_percent ?? 0)
-  const [customDiscount, setCustomDiscount] = useState('')
-  const [paymentMethod,  setPaymentMethod]  = useState(existingOrder?.payment_method ?? '')
-
-  // ── Notiz (pro Gäste/Bestellung) ────────────────────────────────
-  const [note, setNote] = useState(existingOrder?.note ?? '')
-
-  // ── Gäste ────────────────────────────────────────────────────────
-  const [showGuest,   setShowGuest]   = useState(false)
-  const [guestOrigin, setGuestOrigin] = useState(existingOrder?.guest_origin ?? '')
-  const [ageGroup,    setAgeGroup]    = useState(existingOrder?.age_group ?? '')
-  const [partySize,   setPartySize]   = useState(existingOrder?.party_size?.toString() ?? '')
-  const [groupType,    setGroupType]    = useState(existingOrder?.group_type ?? '')
-  const [childrenInfo, setChildrenInfo] = useState<string[]>(
-    existingOrder?.children_info?.split(',').filter(Boolean) ?? []
-  )
-  const [guestCountry, setGuestCountry] = useState(existingOrder?.guest_country ?? '')
-  const [guestSource,  setGuestSource]  = useState(existingOrder?.guest_source  ?? '')
-  const [guestNotes,   setGuestNotes]   = useState(existingOrder?.guest_notes   ?? '')
-
-  // ── Sonstiges (manuelle Einträge) ────────────────────────────────
+  // ── Sonstiges ────────────────────────────────────────────────────
   const [customPrices, setCustomPrices] = useState<Record<string, number>>(() => {
     const m: Record<string, number> = {}
     existingOrder?.order_items.forEach(i => {
@@ -95,14 +82,72 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
     setNewItemPrice('')
   }
 
+  // ── Rabatt & Zahlung ─────────────────────────────────────────────
+  const [discount,         setDiscount]         = useState(existingOrder?.discount_percent ?? 0)
+  const [customDiscount,   setCustomDiscount]   = useState('')
+  const [discountAmount,   setDiscountAmount]   = useState(existingOrder?.discount_amount ?? 0)
+  const [customDiscountAmt,setCustomDiscountAmt]= useState('')
+  const [paymentMethod,    setPaymentMethod]    = useState(existingOrder?.payment_method ?? '')
+
+  function applyDiscount(d: number) {
+    setDiscount(d); setCustomDiscount('')
+    setDiscountAmount(0); setCustomDiscountAmt('')
+  }
+  function applyDiscountAmount(val: string) {
+    setCustomDiscountAmt(val)
+    setDiscountAmount(parseInt(val) || 0)
+    setDiscount(0); setCustomDiscount('')
+  }
+
+  // ── Notiz ────────────────────────────────────────────────────────
+  const [note, setNote] = useState(existingOrder?.note ?? '')
+
+  // ── Gäste ────────────────────────────────────────────────────────
+  const [showGuest,    setShowGuest]    = useState(false)
+  const [guestOrigin,  setGuestOrigin]  = useState(existingOrder?.guest_origin ?? '')
+  const [ageGroup,     setAgeGroup]     = useState(existingOrder?.age_group ?? '')
+  const [partySize,    setPartySize]    = useState(existingOrder?.party_size?.toString() ?? '')
+  const [groupType,    setGroupType]    = useState(existingOrder?.group_type ?? '')
+  const [childrenInfo, setChildrenInfo] = useState<string[]>(
+    existingOrder?.children_info?.split(',').filter(Boolean) ?? []
+  )
+  const [guestCountry, setGuestCountry] = useState(existingOrder?.guest_country ?? '')
+  const [guestSource,  setGuestSource]  = useState(existingOrder?.guest_source  ?? '')
+  const [guestNotes,   setGuestNotes]   = useState(existingOrder?.guest_notes   ?? '')
+
+  // ── Tisch verschieben ────────────────────────────────────────────
+  const [showMoveTo,  setShowMoveTo]  = useState(false)
+  const [allTables,   setAllTables]   = useState<Table[]>([])
+  const [movingTable, setMovingTable] = useState(false)
+
+  async function fetchAndShowMove() {
+    const { data } = await supabase.from('tables').select('id, label, location').order('label')
+    setAllTables((data ?? []).filter(t => t.id !== table.id))
+    setShowMoveTo(true)
+  }
+
+  async function moveToTable(newTableId: string) {
+    if (!existingOrder?.id) return
+    setMovingTable(true)
+    await supabase.from('orders').update({ table_id: newTableId }).eq('id', existingOrder.id)
+    router.push('/service/tisch/' + newTableId)
+    router.refresh()
+  }
+
   // ── Berechnungen ─────────────────────────────────────────────────
   const totalCount     = Object.values(items).reduce((a, b) => a + b, 0)
-  const grossPrice     = Object.entries(items).reduce((sum, [name, qty]) =>
-    sum + getPrice(name) * qty, 0)
-  const houseTotal     = Object.entries(items).reduce((sum, [name, qty]) =>
-    onTheHouse.has(name) ? sum + getPrice(name) * qty : sum, 0)
+  const grossPrice     = Object.entries(items).reduce((s, [n, q]) => s + getPrice(n) * q, 0)
+  const houseTotal     = Object.entries(items).reduce((s, [n, q]) =>
+    onTheHouse.has(n) ? s + getPrice(n) * q : s, 0)
   const chargeableBase = grossPrice - houseTotal
-  const totalPrice     = Math.round(chargeableBase * (1 - discount / 100))
+
+  const isPrivat = table.location === 'privat'
+  const isGratis = paymentMethod === 'schwarz' || isPrivat
+
+  const discountedPrice = discountAmount > 0
+    ? Math.max(0, chargeableBase - discountAmount)
+    : Math.round(chargeableBase * (1 - discount / 100))
+  const displayTotal = isGratis ? 0 : discountedPrice
 
   // ── Hilfsfunktionen ──────────────────────────────────────────────
   function toggleOnTheHouse(name: string) {
@@ -125,11 +170,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
     })
   }
 
-  function applyDiscount(d: number) {
-    setDiscount(d)
-    setCustomDiscount('')
-  }
-
   // ── Speichern ────────────────────────────────────────────────────
   async function saveOrder() {
     setSaving(true)
@@ -138,9 +178,12 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
 
     let orderId = existingOrder?.id
     const meta = {
-      note: note || null, guest_origin: guestOrigin || null,
-      age_group: ageGroup || null, party_size: partySize ? parseInt(partySize) : null,
-      discount_percent: discount || null, payment_method: paymentMethod || null,
+      note: note || null,
+      guest_origin: guestOrigin || null, age_group: ageGroup || null,
+      party_size: partySize ? parseInt(partySize) : null,
+      discount_percent: discountAmount > 0 ? null : (discount || null),
+      discount_amount:  discountAmount > 0 ? discountAmount : null,
+      payment_method: paymentMethod || null,
       group_type: groupType || null,
       children_info: childrenInfo.length ? childrenInfo.join(',') : null,
       guest_country: guestCountry || null,
@@ -165,7 +208,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
         on_the_house: onTheHouse.has(name),
       }))
     )
-    router.push(backHref ?? '/service')
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
     router.refresh()
   }
 
@@ -183,20 +228,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
     setShowGuest(false)
   }
 
-  async function markTransferred() {
-    if (!existingOrder?.id) return
-    setSaving(true)
-    await supabase.from('orders').update({
-      status: 'transferred', closed_at: new Date().toISOString(),
-      discount_percent: discount || null, payment_method: paymentMethod || null,
-    }).eq('id', existingOrder.id)
-    router.push(backHref ?? '/service')
-    router.refresh()
-  }
-
   async function closeOrder() {
     if (!existingOrder?.id) return
-    if (!confirm('Bestellung schließen?')) return
+    if (!confirm('Bestellung abschließen?')) return
     setSaving(true)
     await supabase.from('orders').update({ status: 'closed', closed_at: new Date().toISOString() })
       .eq('id', existingOrder.id)
@@ -235,9 +269,11 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
       {/* Header */}
       <div style={S.header}>
         <div>
-          <div style={{ fontSize: '17px', fontWeight: '700', color: '#B8882A' }}>Tisch {table.label}</div>
+          <div style={{ fontSize: '17px', fontWeight: '700', color: '#B8882A' }}>
+            {isPrivat ? '🏠 Privat' : `Tisch ${table.label}`}
+          </div>
           <div style={{ fontSize: '11px', color: '#8A7A60' }}>
-            {table.location === 'outside' ? 'Außen' : table.location === 'inside' ? 'Innen' : table.location === 'takeaway' ? '🥡 TakeAway' : '🏠 Privat'}
+            {LOCATION_LABEL[table.location] ?? table.location}
             {existingOrder ? ' · Bestellung offen' : ''}
           </div>
         </div>
@@ -247,7 +283,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
               🇹🇷 Phrasen
             </button>
           </Link>
-          <button onClick={() => router.push('/service')} style={{ background: '#FFF8EC', border: '1px solid #E8C878', color: '#B8882A', padding: '8px 14px', borderRadius: '8px', fontSize: '14px', cursor: 'pointer' }}>
+          <button onClick={() => router.push(backHref ?? '/service')} style={{ background: '#FFF8EC', border: '1px solid #E8C878', color: '#B8882A', padding: '8px 14px', borderRadius: '8px', fontSize: '14px', cursor: 'pointer' }}>
             ← Tische
           </button>
         </div>
@@ -255,9 +291,16 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
 
       <div style={{ padding: '16px' }}>
 
+        {/* Privat-Hinweis */}
+        {isPrivat && (
+          <div style={{ background: '#FFF8EC', border: '1px solid #E8C878', borderRadius: '10px', padding: '10px 14px', marginBottom: '14px', fontSize: '12px', color: '#8A7A60' }}>
+            🏠 Privates Essen — wird <strong>nicht</strong> im Umsatz gezählt. Nur zur internen Erfassung.
+          </div>
+        )}
+
         {/* Kategorien */}
         <p style={S.label}>Kategorie</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '16px' }}>
           {CATEGORIES.map(cat => (
             <button key={cat.key} onClick={() => setSelectedCat(selectedCat === cat.key ? null : cat.key)} style={{
               background: selectedCat === cat.key ? '#FFF8EC' : '#FFFFFF',
@@ -288,7 +331,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
               ))
             ) : selectedCat === 'sonstiges' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {/* Eingabeform */}
                 <div style={{ ...S.card, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div style={{ fontSize: '12px', color: '#8A7A60', fontWeight: '600' }}>✏️ Produkt manuell eintragen</div>
                   <input
@@ -309,7 +351,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                     }}>+ Hinzufügen</button>
                   </div>
                 </div>
-                {/* Bereits hinzugefügte Sonstiges-Einträge */}
                 {Object.keys(items).filter(name => !!customPrices[name]).map(name => (
                   <ProductRow key={name} item={{ name, desc: '', price: customPrices[name] }} qty={items[name] ?? 0} onChange={changeQty} />
                 ))}
@@ -329,7 +370,7 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
           <div style={{ marginBottom: '16px' }}>
             <p style={S.label}>Bestellung</p>
 
-            {/* Artikel-Liste mit 🎁-Button */}
+            {/* Artikel-Liste */}
             <div style={{ background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px', overflow: 'hidden' }}>
               {Object.entries(items).map(([name, qty], i, arr) => {
                 const price   = getPrice(name) * qty
@@ -343,70 +384,97 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                     <span style={{ flex: 1, fontSize: '14px', color: '#1A1207' }}>
                       {name} <span style={{ color: '#8A7A60' }}>×{qty}</span>
                     </span>
-                    {/* Aufs-Haus Toggle */}
-                    <button onClick={() => toggleOnTheHouse(name)} title="Aufs Haus" style={{
-                      background: isHouse ? '#2E7D32' : '#F5F2EC',
-                      border: `1px solid ${isHouse ? '#2E7D32' : '#E5E0D8'}`,
-                      borderRadius: '6px', padding: '3px 8px', fontSize: '13px',
-                      cursor: 'pointer', marginRight: '8px', lineHeight: 1,
-                    }}>🎁</button>
+                    {!isGratis && (
+                      <button onClick={() => toggleOnTheHouse(name)} title="Aufs Haus" style={{
+                        background: isHouse ? '#2E7D32' : '#F5F2EC',
+                        border: `1px solid ${isHouse ? '#2E7D32' : '#E5E0D8'}`,
+                        borderRadius: '6px', padding: '3px 8px', fontSize: '13px',
+                        cursor: 'pointer', marginRight: '8px', lineHeight: 1,
+                      }}>🎁</button>
+                    )}
                     <span style={{
-                      fontSize: isHouse ? '12px' : '14px',
+                      fontSize: (isHouse || isGratis) ? '12px' : '14px',
                       fontWeight: '600',
-                      color: isHouse ? '#2E7D32' : '#B8882A',
-                      textDecoration: isHouse ? 'line-through' : 'none',
+                      color: (isHouse || isGratis) ? '#2E7D32' : '#B8882A',
+                      textDecoration: (isHouse || isGratis) ? 'line-through' : 'none',
                     }}>
-                      {price} ₺{isHouse ? ' gratis' : ''}
+                      {price} ₺{(isHouse || isGratis) ? ' gratis' : ''}
                     </span>
                   </div>
                 )
               })}
             </div>
 
-            {/* Rabatt */}
-            <div style={{ ...S.card, marginTop: '8px' }}>
-              <div style={{ fontSize: '12px', color: '#8A7A60', fontWeight: '600', marginBottom: '8px' }}>🏷️ İndirim / Rabatt</div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const, alignItems: 'center' }}>
-                {[0, 10, 20, 50].map(d => (
-                  <button key={d} onClick={() => applyDiscount(d)} style={{
-                    ...S.chip(discount === d && !customDiscount),
-                    padding: '7px 13px', fontSize: '13px',
-                  }}>
-                    {d === 0 ? 'Kein' : `${d} %`}
-                  </button>
-                ))}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <input
-                    type="number" min="1" max="99" placeholder="%" value={customDiscount}
-                    onChange={e => { setCustomDiscount(e.target.value); setDiscount(parseInt(e.target.value) || 0) }}
-                    style={{
-                      background: '#F5F2EC', border: `1px solid ${customDiscount ? '#B8882A' : '#E5E0D8'}`,
-                      borderRadius: '8px', padding: '7px 10px', width: '60px', fontSize: '13px',
-                      color: '#1A1207', outline: 'none',
-                    }}
-                  />
-                  <span style={{ fontSize: '12px', color: '#8A7A60' }}>%</span>
-                </div>
+            {/* Privat-Warenwert */}
+            {isPrivat && grossPrice > 0 && (
+              <div style={{ textAlign: 'right', padding: '6px 4px', fontSize: '12px', color: '#8A7A60' }}>
+                Warenwert (intern): {grossPrice} ₺
               </div>
-              {discount > 0 && (
-                <div style={{ marginTop: '8px', fontSize: '13px' }}>
-                  <span style={{ color: '#8A7A60', textDecoration: 'line-through' }}>{chargeableBase} ₺</span>
-                  <span style={{ color: '#1A1207' }}> → </span>
-                  <span style={{ fontWeight: '700', color: '#B8882A' }}>{totalPrice} ₺</span>
-                  <span style={{ color: '#2E7D32', marginLeft: '6px' }}>−{discount} %</span>
+            )}
+
+            {/* Rabatt — nur wenn nicht gratis */}
+            {!isGratis && (
+              <div style={{ ...S.card, marginTop: '8px' }}>
+                <div style={{ fontSize: '12px', color: '#8A7A60', fontWeight: '600', marginBottom: '8px' }}>🏷️ İndirim / Rabatt</div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                  {[0, 10, 20, 50].map(d => (
+                    <button key={d} onClick={() => applyDiscount(d)} style={{
+                      ...S.chip(discount === d && !customDiscount && discountAmount === 0),
+                      padding: '7px 13px', fontSize: '13px',
+                    }}>
+                      {d === 0 ? 'Kein' : `${d} %`}
+                    </button>
+                  ))}
+                  {/* Frei % */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="number" min="1" max="99" placeholder="%" value={customDiscount}
+                      onChange={e => { setCustomDiscount(e.target.value); setDiscount(parseInt(e.target.value) || 0); setDiscountAmount(0); setCustomDiscountAmt('') }}
+                      style={{
+                        background: '#F5F2EC', border: `1px solid ${customDiscount ? '#B8882A' : '#E5E0D8'}`,
+                        borderRadius: '8px', padding: '7px 10px', width: '60px', fontSize: '13px',
+                        color: '#1A1207', outline: 'none',
+                      }}
+                    />
+                    <span style={{ fontSize: '12px', color: '#8A7A60' }}>%</span>
+                  </div>
+                  {/* Frei ₺ */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="number" min="1" placeholder="₺ fix" value={customDiscountAmt}
+                      onChange={e => applyDiscountAmount(e.target.value)}
+                      style={{
+                        background: '#F5F2EC', border: `1px solid ${customDiscountAmt ? '#B8882A' : '#E5E0D8'}`,
+                        borderRadius: '8px', padding: '7px 10px', width: '70px', fontSize: '13px',
+                        color: '#1A1207', outline: 'none',
+                      }}
+                    />
+                    <span style={{ fontSize: '12px', color: '#8A7A60' }}>₺</span>
+                  </div>
                 </div>
-              )}
-            </div>
+                {(discount > 0 || discountAmount > 0) && (
+                  <div style={{ marginTop: '8px', fontSize: '13px' }}>
+                    <span style={{ color: '#8A7A60', textDecoration: 'line-through' }}>{chargeableBase} ₺</span>
+                    <span style={{ color: '#1A1207' }}> → </span>
+                    <span style={{ fontWeight: '700', color: '#B8882A' }}>{displayTotal} ₺</span>
+                    <span style={{ color: '#2E7D32', marginLeft: '6px' }}>
+                      {discountAmount > 0 ? `−${discountAmount} ₺` : `−${discount} %`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Zahlungsart */}
             <div style={{ ...S.card, marginTop: '8px' }}>
               <div style={{ fontSize: '12px', color: '#8A7A60', fontWeight: '600', marginBottom: '8px' }}>💳 Zahlungsart</div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
                 {([
-                  { val: 'card',          label: '💳 Karte' },
-                  { val: 'cash',          label: '💵 Bar' },
-                  { val: 'schwarz_bar',   label: '🤝 Freunde (bar)' },
-                  { val: 'schwarz',       label: '🎁 Freunde (gratis)' },
+                  { val: 'card',         label: '💳 Karte' },
+                  { val: 'cash',         label: '💵 Bar' },
+                  { val: 'friends_card', label: '👫 Freunde (Karte)' },
+                  { val: 'schwarz_bar',  label: '🤝 Freunde (Bar)' },
+                  { val: 'schwarz',      label: '🎁 Freunde (gratis)' },
                 ] as const).map(({ val, label }) => (
                   <button key={val} onClick={() => setPaymentMethod(paymentMethod === val ? '' : val)} style={{
                     ...S.chip(paymentMethod === val),
@@ -416,6 +484,9 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                   </button>
                 ))}
               </div>
+              {paymentMethod === 'schwarz' && (
+                <p style={{ fontSize: '11px', color: '#2E7D32', marginTop: '6px' }}>🎁 Gesamtbetrag = 0 ₺ (gratis)</p>
+              )}
             </div>
 
             {/* Gäste-Notiz */}
@@ -445,7 +516,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
           {showGuest && (
             <div style={{ ...S.card, marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-              {/* Gruppentyp */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>Art der Gruppe</label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
@@ -463,7 +533,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                 </div>
               </div>
 
-              {/* Kinder */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>Mit Kindern</label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
@@ -484,14 +553,13 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                 </div>
               </div>
 
-              {/* Herkunft */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>Herkunft</label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
                   {([
-                    ['tourist_foreign',   '🌍 Auslands-Tourist'],
-                    ['tourist_domestic',  '🇹🇷 Inlands-Tourist'],
-                    ['local',             '🏠 Einheimisch'],
+                    ['tourist_foreign',  '🌍 Auslands-Tourist'],
+                    ['tourist_domestic', '🇹🇷 Inlands-Tourist'],
+                    ['local',            '🏠 Einheimisch'],
                   ] as const).map(([val, label]) => (
                     <button key={val} onClick={() => setGuestOrigin(guestOrigin === val ? '' : val)} style={S.chip(guestOrigin === val)}>
                       {label}
@@ -500,7 +568,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                 </div>
               </div>
 
-              {/* Altersgruppe */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>Altersgruppe</label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
@@ -512,7 +579,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                 </div>
               </div>
 
-              {/* Personenzahl */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>Personen</label>
                 <input type="number" value={partySize} onChange={e => setPartySize(e.target.value)} placeholder="z.B. 3" min="1" max="20" style={{
@@ -521,7 +587,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                 }} />
               </div>
 
-              {/* Herkunftsland */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>🌍 Herkunftsland</label>
                 <input type="text" value={guestCountry} onChange={e => setGuestCountry(e.target.value)}
@@ -529,7 +594,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                   style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${guestCountry ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }} />
               </div>
 
-              {/* Wie aufmerksam geworden */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>📣 Wie aufmerksam geworden?</label>
                 <input type="text" value={guestSource} onChange={e => setGuestSource(e.target.value)}
@@ -537,7 +601,6 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
                   style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${guestSource ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }} />
               </div>
 
-              {/* Weitere Notizen */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '6px' }}>📝 Weitere Notizen</label>
                 <textarea value={guestNotes} onChange={e => setGuestNotes(e.target.value)}
@@ -557,51 +620,103 @@ export default function OrderClient({ table, existingOrder, backHref }: { table:
         {/* Aktionen bestehende Bestellung */}
         {existingOrder && (
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-            <button onClick={markTransferred} disabled={saving} style={{
-              flex: 1, background: '#EEF4FF', border: '1px solid #90CAF9', color: '#1565C0',
-              padding: '13px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer', fontWeight: '700',
+            <button onClick={fetchAndShowMove} disabled={movingTable} style={{
+              background: '#F5F2EC', border: '1px solid #E5E0D8', color: '#5A5040',
+              padding: '13px 14px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer',
             }}>
-              ✓ Ins Menulux übertragen
+              🔀 Tisch
             </button>
             <button onClick={closeOrder} disabled={saving} style={{
-              background: '#FFF0F0', border: '1px solid #FFCDD2', color: '#C62828',
-              padding: '13px 16px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer', fontWeight: '700',
-            }}>✕</button>
+              flex: 1, background: '#FFF0F0', border: '1px solid #FFCDD2', color: '#C62828',
+              padding: '13px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer', fontWeight: '700',
+            }}>✕ Abschließen</button>
           </div>
         )}
       </div>
+
+      {/* Tisch-Verschieben Modal */}
+      {showMoveTo && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200,
+          display: 'flex', alignItems: 'flex-end',
+        }} onClick={() => setShowMoveTo(false)}>
+          <div style={{
+            background: '#FFFDF9', borderRadius: '16px 16px 0 0', padding: '20px 16px',
+            width: '100%', maxWidth: '480px', margin: '0 auto',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: '15px', fontWeight: '700', color: '#B8882A', marginBottom: '14px' }}>
+              🔀 Auf welchen Tisch verschieben?
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', maxHeight: '60dvh', overflowY: 'auto' }}>
+              {allTables.map(t => (
+                <button key={t.id} onClick={() => moveToTable(t.id)} style={{
+                  background: '#FFF8EC', border: '2px solid #E8C878', borderRadius: '12px',
+                  padding: '14px 6px', textAlign: 'center', cursor: 'pointer',
+                }}>
+                  <div style={{ fontSize: '20px', fontWeight: '800', color: '#B8882A' }}>
+                    {t.location === 'takeaway' ? '🥡' : t.location === 'privat' ? '🏠' : t.label}
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#8A7A60', marginTop: '3px' }}>
+                    {t.location === 'outside' ? 'Außen' : t.location === 'inside' ? 'Innen' : t.location === 'takeaway' ? 'TakeAway' : 'Privat'}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setShowMoveTo(false)} style={{
+              marginTop: '14px', width: '100%', background: '#F5F2EC', border: '1px solid #E5E0D8',
+              color: '#8A7A60', padding: '12px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer',
+            }}>Abbrechen</button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Bar */}
       {totalCount > 0 && (
         <div style={{
           position: 'fixed', bottom: 0, left: 0, right: 0,
-          background: '#FFFDF9', borderTop: '2px solid #B8882A',
+          background: '#FFFDF9', borderTop: `2px solid ${saved ? '#4CAF50' : '#B8882A'}`,
           padding: '12px 16px', display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', zIndex: 100,
           boxShadow: '0 -2px 12px rgba(0,0,0,0.08)',
+          transition: 'border-color 0.3s',
         }}>
           <div>
             <div style={{ fontSize: '12px', color: '#8A7A60' }}>
-              Tisch {table.label}
-              {paymentMethod === 'card'        && '  ·  💳 Karte'}
-              {paymentMethod === 'cash'        && '  ·  💵 Bar'}
-              {paymentMethod === 'schwarz_bar' && '  ·  🤝 Freunde (bar)'}
-              {paymentMethod === 'schwarz'     && '  ·  🎁 Freunde (gratis)'}
+              {isPrivat ? '🏠 Privat' : `Tisch ${table.label}`}
+              {paymentMethod === 'card'         && '  ·  💳 Karte'}
+              {paymentMethod === 'cash'         && '  ·  💵 Bar'}
+              {paymentMethod === 'friends_card' && '  ·  👫 Freunde (Karte)'}
+              {paymentMethod === 'schwarz_bar'  && '  ·  🤝 Freunde (Bar)'}
+              {paymentMethod === 'schwarz'      && '  ·  🎁 Freunde (gratis)'}
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
               <span style={{ fontSize: '20px', fontWeight: '800', color: '#B8882A' }}>{totalCount}</span>
               <span style={{ fontSize: '12px', color: '#8A7A60' }}>Art. ·</span>
-              {discount > 0 && (
-                <span style={{ fontSize: '12px', color: '#8A7A60', textDecoration: 'line-through' }}>{chargeableBase} ₺</span>
-              )}
-              <span style={{ fontSize: '17px', fontWeight: '800', color: '#1A1207' }}>{totalPrice} ₺</span>
-              {houseTotal > 0 && (
-                <span style={{ fontSize: '11px', color: '#2E7D32' }}>+{houseTotal} ₺ 🎁</span>
+              {isGratis ? (
+                <>
+                  <span style={{ fontSize: '12px', color: '#8A7A60', textDecoration: 'line-through' }}>{grossPrice} ₺</span>
+                  <span style={{ fontSize: '17px', fontWeight: '800', color: '#2E7D32' }}>0 ₺</span>
+                </>
+              ) : (
+                <>
+                  {(discount > 0 || discountAmount > 0) && (
+                    <span style={{ fontSize: '12px', color: '#8A7A60', textDecoration: 'line-through' }}>{chargeableBase} ₺</span>
+                  )}
+                  <span style={{ fontSize: '17px', fontWeight: '800', color: '#1A1207' }}>{displayTotal} ₺</span>
+                  {houseTotal > 0 && (
+                    <span style={{ fontSize: '11px', color: '#2E7D32' }}>+{houseTotal} ₺ 🎁</span>
+                  )}
+                </>
               )}
             </div>
           </div>
-          <button onClick={saveOrder} disabled={saving} style={{ ...S.goldBtn, opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Speichert…' : 'Speichern →'}
+          <button onClick={saveOrder} disabled={saving} style={{
+            ...S.goldBtn,
+            background: saved ? '#4CAF50' : '#B8882A',
+            opacity: saving ? 0.6 : 1,
+            transition: 'background 0.3s',
+          }}>
+            {saving ? 'Speichert…' : saved ? '✓ Gespeichert' : 'Speichern'}
           </button>
         </div>
       )}

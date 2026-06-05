@@ -12,14 +12,15 @@ type Order = {
   guest_origin: string | null; age_group: string | null; party_size: number | null
   group_type: string | null; children_info: string | null
   guest_country: string | null; guest_source: string | null; guest_notes: string | null
-  discount_percent: number | null; payment_method: string | null
+  discount_percent: number | null; discount_amount: number | null; payment_method: string | null
   tables: { label: string; location: string } | null
   order_items: OrderItem[]
 }
 
 const payLabel: Record<string, string> = {
   card: '💳 Karte', cash: '💵 Bar',
-  schwarz_bar: '🤝 Freunde (bar)', schwarz: '🎁 Freunde (gratis)',
+  friends_card: '👫 Freunde (Karte)',
+  schwarz_bar: '🤝 Freunde (Bar)', schwarz: '🎁 Freunde (gratis)',
 }
 const childrenLabel: Record<string, string> = { kleinkind: '👶', kinder: '👧', jugendliche: '🧒' }
 const groupLabel: Record<string, string> = {
@@ -36,9 +37,11 @@ const statusLabel: Record<string, { label: string; color: string; bg: string }> 
 }
 
 function orderRevenue(o: Order) {
-  if (o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar') return 0
+  // Privat und Freunde gratis zählen nicht zum offiziellen Umsatz
+  if (o.payment_method === 'schwarz' || o.tables?.location === 'privat') return 0
   const base = (o.order_items ?? []).reduce((s, i) => i.on_the_house ? s : s + i.unit_price * i.qty, 0)
-  return Math.round(base * (1 - (o.discount_percent ?? 0) / 100))
+  const afterPercent = Math.round(base * (1 - (o.discount_percent ?? 0) / 100))
+  return Math.max(0, afterPercent - ((o as Order & { discount_amount?: number }).discount_amount ?? 0))
 }
 function orderGross(o: Order) {
   return (o.order_items ?? []).reduce((s, i) => i.on_the_house ? s : s + i.unit_price * i.qty, 0)
@@ -68,8 +71,10 @@ export default function UebersichtClient({
   // ── Tagesabschluss ───────────────────────────────────────────────
   const [beko,             setBeko]             = useState('')
   const [menulux,          setMenulux]          = useState('')
-  const [entnahmePrivat,   setEntnahmePrivat]   = useState('')
-  const [entnahmeGeschaeft, setEntnahmeGeschaeft] = useState('')
+  const [entnahmePrivat,       setEntnahmePrivat]       = useState('')
+  const [entnahmeGeschaeft,    setEntnahmeGeschaeft]    = useState('')
+  const [entnahmePrivatNote,   setEntnahmePrivatNote]   = useState('')
+  const [entnahmeGeschaeftNote,setEntnahmeGeschaeftNote]= useState('')
   const [abschlussId, setAbschlussId] = useState<Record<string, string>>({})
   const [abschlussSaved, setAbschlussSaved] = useState(false)
 
@@ -80,29 +85,31 @@ export default function UebersichtClient({
         data?.forEach(e => {
           if (e.entry_type === 'beko_total')          setBeko(e.amount?.toString() ?? '')
           if (e.entry_type === 'menulux_total')        setMenulux(e.amount?.toString() ?? '')
-          if (e.entry_type === 'entnahme_privat')      setEntnahmePrivat(e.amount?.toString() ?? '')
-          if (e.entry_type === 'entnahme_geschaeft')   setEntnahmeGeschaeft(e.amount?.toString() ?? '')
+          if (e.entry_type === 'entnahme_privat')    { setEntnahmePrivat(e.amount?.toString() ?? ''); setEntnahmePrivatNote(e.note ?? '') }
+          if (e.entry_type === 'entnahme_geschaeft') { setEntnahmeGeschaeft(e.amount?.toString() ?? ''); setEntnahmeGeschaeftNote(e.note ?? '') }
           setAbschlussId(p => ({ ...p, [e.entry_type]: e.id }))
         })
       })
   }, [date])
 
   async function saveAbschluss() {
-    async function upsertEntry(type: string, amount: number) {
+    async function upsertEntry(type: string, amount: number, note?: string) {
       const existingId = abschlussId[type]
+      const payload: Record<string, unknown> = { amount }
+      if (note !== undefined) payload.note = note || null
       if (existingId) {
-        await supabase.from('daily_entries').update({ amount }).eq('id', existingId)
+        await supabase.from('daily_entries').update(payload).eq('id', existingId)
         return existingId
       } else {
-        const { data } = await supabase.from('daily_entries').insert({ date, entry_type: type, amount }).select('id').single()
+        const { data } = await supabase.from('daily_entries').insert({ date, entry_type: type, ...payload }).select('id').single()
         return data?.id
       }
     }
     const results = await Promise.all([
-      upsertEntry('beko_total',         parseInt(beko)              || 0),
-      upsertEntry('menulux_total',       parseInt(menulux)           || 0),
-      upsertEntry('entnahme_privat',     parseInt(entnahmePrivat)    || 0),
-      upsertEntry('entnahme_geschaeft',  parseInt(entnahmeGeschaeft) || 0),
+      upsertEntry('beko_total',        parseInt(beko)              || 0),
+      upsertEntry('menulux_total',     parseInt(menulux)           || 0),
+      upsertEntry('entnahme_privat',   parseInt(entnahmePrivat)    || 0, entnahmePrivatNote),
+      upsertEntry('entnahme_geschaeft',parseInt(entnahmeGeschaeft) || 0, entnahmeGeschaeftNote),
     ])
     const types = ['beko_total', 'menulux_total', 'entnahme_privat', 'entnahme_geschaeft']
     const newIds: Record<string, string> = {}
@@ -117,7 +124,7 @@ export default function UebersichtClient({
 
   const totalRevenue = orders.reduce((s, o) => s + orderRevenue(o), 0)
   const schwarzTotal = orders
-    .filter(o => o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar')
+    .filter(o => (o.payment_method === 'schwarz' || o.payment_method === 'schwarz_bar') && o.tables?.location !== 'privat')
     .reduce((s, o) => s + orderGross(o), 0)
 
   async function deleteOrder(id: string) {
@@ -247,7 +254,8 @@ export default function UebersichtClient({
               const charged = orderRevenue(order)
               const st      = statusLabel[order.status] ?? statusLabel.closed
               const time    = new Date(order.opened_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-              const isSchwarz = order.payment_method === 'schwarz' || order.payment_method === 'schwarz_bar'
+              const isPrivatOrder = order.tables?.location === 'privat'
+              const isSchwarz = (order.payment_method === 'schwarz' || order.payment_method === 'schwarz_bar') && !isPrivatOrder
               const childrenChips = (order.children_info ?? '').split(',').filter(Boolean).map(v => childrenLabel[v] ?? '').join(' ')
 
               return (
@@ -260,7 +268,9 @@ export default function UebersichtClient({
                   <div style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F0EDE8', background: isSchwarz ? '#F0FAF0' : '#FAFAF8' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' as const }}>
                       <span style={{ fontSize: '16px', fontWeight: '800', color: '#B8882A' }}>Tisch {order.tables?.label}</span>
-                      <span style={{ fontSize: '11px', color: '#8A7A60' }}>{order.tables?.location === 'outside' ? 'Außen' : 'Innen'}</span>
+                      <span style={{ fontSize: '11px', color: '#8A7A60' }}>
+                        {order.tables?.location === 'outside' ? 'Außen' : order.tables?.location === 'inside' ? 'Innen' : order.tables?.location === 'takeaway' ? '🥡' : order.tables?.location === 'privat' ? '🏠 Privat' : ''}
+                      </span>
                       <span style={{ fontSize: '11px', color: '#8A7A60' }}>· {time} Uhr</span>
                       {order.payment_method && (
                         <span style={{ fontSize: '11px', color: isSchwarz ? '#2E7D32' : '#5A5040', fontWeight: '600' }}>
@@ -304,6 +314,12 @@ export default function UebersichtClient({
                     }
                     {(order.discount_percent ?? 0) > 0 && (
                       <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '5px' }}>🏷️ Rabatt {order.discount_percent} %</p>
+                    )}
+                    {(order.discount_amount ?? 0) > 0 && (
+                      <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '5px' }}>🏷️ Rabatt {order.discount_amount} ₺ (fix)</p>
+                    )}
+                    {isPrivatOrder && (
+                      <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '5px', fontStyle: 'italic' }}>🏠 Privat — nicht im Umsatz</p>
                     )}
                     {(order.guest_origin || order.age_group || order.party_size || order.group_type || order.children_info) && (
                       <p style={{ fontSize: '11px', color: '#8A7A60', marginTop: '4px' }}>
@@ -366,14 +382,18 @@ export default function UebersichtClient({
               <div style={{ marginBottom: '8px' }}>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>🏠 Privat-Entnahme</label>
                 <input type="number" min="0" placeholder="Betrag in ₺" value={entnahmePrivat} onChange={e => setEntnahmePrivat(e.target.value)}
-                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmePrivat ? '#C62828' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }} />
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmePrivat ? '#C62828' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none', marginBottom: '5px' }} />
+                <input type="text" placeholder="Notiz (optional)" value={entnahmePrivatNote} onChange={e => setEntnahmePrivatNote(e.target.value)}
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmePrivatNote ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }} />
               </div>
 
               {/* Geschäftlich */}
               <div>
                 <label style={{ fontSize: '12px', color: '#8A7A60', display: 'block', marginBottom: '5px', fontWeight: '600' }}>💼 Geschäftliche Entnahme</label>
                 <input type="number" min="0" placeholder="Betrag in ₺" value={entnahmeGeschaeft} onChange={e => setEntnahmeGeschaeft(e.target.value)}
-                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmeGeschaeft ? '#C62828' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none' }} />
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmeGeschaeft ? '#C62828' : '#E5E0D8'}`, borderRadius: '8px', padding: '10px 12px', fontSize: '15px', color: '#1A1207', outline: 'none', marginBottom: '5px' }} />
+                <input type="text" placeholder="Notiz (optional)" value={entnahmeGeschaeftNote} onChange={e => setEntnahmeGeschaeftNote(e.target.value)}
+                  style={{ width: '100%', background: '#F5F2EC', border: `1px solid ${entnahmeGeschaeftNote ? '#B8882A' : '#E5E0D8'}`, borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#1A1207', outline: 'none' }} />
               </div>
             </div>
 
