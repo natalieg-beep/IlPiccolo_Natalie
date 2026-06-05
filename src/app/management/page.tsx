@@ -24,7 +24,7 @@ export default async function ManagementPage() {
   type OrderItem = { unit_price: number; qty: number; on_the_house: boolean }
   type Order = { payment_method: string | null; discount_percent: number | null; discount_amount: number | null; tables: { location: string } | null; order_items: OrderItem[] }
 
-  const allOrders = (orders ?? []) as Order[]
+  const allOrders = (orders ?? []) as unknown as Order[]
   const nonPrivat = allOrders.filter(o => o.tables?.location !== 'privat')
 
   const officialRevenue = nonPrivat.reduce((sum, o) => {
