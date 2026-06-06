@@ -45,12 +45,32 @@ function stageTs(b: DoughBatch): string | null {
   return map[b.stage]
 }
 
+const STAGES_OPTIONS: { key: DoughStage; label: string }[] = [
+  { key: 'teig_gemacht',      label: '1. Teig gemacht' },
+  { key: 'teiglinge_geformt', label: '2. Teiglinge geformt' },
+  { key: 'kuehlschrank',      label: '3. Im Kühlschrank' },
+  { key: 'draussen',          label: '4. Draußen (akklimatisieren)' },
+]
+
+// Lokale Zeit → ISO-String
+function localToISO(dateStr: string, timeStr: string): string {
+  return new Date(`${dateStr}T${timeStr}:00`).toISOString()
+}
+
 export default function TeigClient() {
   const router = useRouter()
   const [user, setUser] = useState<KitchenUser | null>(null)
   const [batches, setBatches] = useState<DoughBatch[]>([])
   const [saving, setSaving] = useState<string | null>(null)
   const [showFinished, setShowFinished] = useState(false)
+
+  // Manueller Eintrag
+  const [showManual, setShowManual] = useState(false)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const nowStr   = new Date().toTimeString().slice(0, 5)
+  const [manStage, setManStage] = useState<DoughStage>('teig_gemacht')
+  const [manDate,  setManDate]  = useState(todayStr)
+  const [manTime,  setManTime]  = useState(nowStr)
 
   useEffect(() => {
     const u = localStorage.getItem('kitchen_user')
@@ -97,6 +117,35 @@ export default function TeigClient() {
     await load()
   }
 
+  async function saveManual() {
+    if (!user) return
+    setSaving('manual')
+    const ts = localToISO(manDate, manTime)
+
+    // Baue die Timestamps für alle vorherigen Stages (approximiert: jeweils -24h)
+    const stageOrder: DoughStage[] = ['teig_gemacht', 'teiglinge_geformt', 'kuehlschrank', 'draussen']
+    const idx = stageOrder.indexOf(manStage)
+
+    const entry: Record<string, string | number> = {
+      user_id: user.id,
+      stage: manStage,
+    }
+
+    // Aktueller Stage bekommt den eingetragenen Zeitstempel
+    // Vorherige Stages bekommen -24h pro Stage
+    const tsFields = ['teig_at', 'teiglinge_at', 'kuehlschrank_at', 'draussen_at']
+    for (let i = 0; i <= idx; i++) {
+      const hoursBack = (idx - i) * 24
+      const stageTs = new Date(new Date(ts).getTime() - hoursBack * 3_600_000).toISOString()
+      entry[tsFields[i]] = stageTs
+    }
+
+    await createClient().from('kitchen_dough_batches').insert(entry)
+    setShowManual(false)
+    await load()
+    setSaving(null)
+  }
+
   const active = batches.filter(b => b.stage !== 'fertig')
   const finished = batches.filter(b => b.stage === 'fertig')
 
@@ -115,12 +164,69 @@ export default function TeigClient() {
       </div>
 
       <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <button onClick={newBatch} disabled={saving === 'new'} style={{
-          background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '12px',
-          padding: '16px', fontSize: '16px', fontWeight: '700', cursor: 'pointer', width: '100%',
-        }}>
-          🫓 + Neuer Teig jetzt gemacht
-        </button>
+
+        {/* Zwei Buttons: Jetzt + Manuell */}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={newBatch} disabled={saving === 'new'} style={{
+            flex: 1, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '12px',
+            padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer',
+          }}>
+            🫓 + Teig jetzt gemacht
+          </button>
+          <button onClick={() => setShowManual(s => !s)} style={{
+            flex: 1, background: '#FFFFFF', color: '#3A7A3A', border: '2px solid #3A7A3A',
+            borderRadius: '12px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer',
+          }}>
+            ✏️ Manuell eintragen
+          </button>
+        </div>
+
+        {/* Manuelles Formular */}
+        {showManual && (
+          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1B3A1B' }}>Bestehende Charge eintragen</h3>
+
+            <div>
+              <label style={lblStyle}>Aktuelles Stadium</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {STAGES_OPTIONS.map(s => (
+                  <button key={s.key} onClick={() => setManStage(s.key)} style={{
+                    padding: '10px 12px', borderRadius: '8px', border: '1.5px solid',
+                    borderColor: manStage === s.key ? '#3A7A3A' : '#DDD',
+                    background: manStage === s.key ? '#E8F5E9' : '#FFF',
+                    color: manStage === s.key ? '#1B3A1B' : '#555',
+                    cursor: 'pointer', fontSize: '14px', fontWeight: manStage === s.key ? '700' : '400',
+                    textAlign: 'left',
+                  }}>{s.label}</button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label style={lblStyle}>Wann war das? (Datum)</label>
+              <input type="date" value={manDate} onChange={e => setManDate(e.target.value)}
+                style={inpStyle} />
+            </div>
+            <div>
+              <label style={lblStyle}>Uhrzeit</label>
+              <input type="time" value={manTime} onChange={e => setManTime(e.target.value)}
+                style={inpStyle} />
+            </div>
+            <div style={{ background: '#F0F4F0', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#555' }}>
+              💡 Die früheren Stadien werden automatisch mit jeweils -24h eingetragen.
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => setShowManual(false)} style={{
+                flex: 1, background: '#F5F5F5', border: '1px solid #DDD', borderRadius: '8px',
+                padding: '12px', fontSize: '14px', cursor: 'pointer', color: '#555',
+              }}>Abbrechen</button>
+              <button onClick={saveManual} disabled={saving === 'manual'} style={{
+                flex: 2, background: '#3A7A3A', border: 'none', borderRadius: '8px',
+                padding: '12px', fontSize: '14px', fontWeight: '700', color: '#FFF', cursor: 'pointer',
+              }}>Speichern</button>
+            </div>
+          </div>
+        )}
 
         {active.length === 0 && (
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Keine aktiven Chargen.</p>
@@ -216,6 +322,7 @@ function BatchCard({ b, onAdvance, onSetDraussen, saving, finished }: {
           <div key={s.key} style={{ flex: 1, textAlign: 'center' }}>
             <div style={{
               height: '4px', borderRadius: '2px',
+
               background: i <= currentIdx ? '#3A7A3A' : '#CCCCCC',
             }} />
             <div style={{ fontSize: '9px', color: i <= currentIdx ? '#3A7A3A' : '#AAA', marginTop: '3px' }}>
@@ -227,3 +334,6 @@ function BatchCard({ b, onAdvance, onSetDraussen, saving, finished }: {
     </div>
   )
 }
+
+const lblStyle: React.CSSProperties = { fontSize: '12px', fontWeight: '600', color: '#555', display: 'block', marginBottom: '6px' }
+const inpStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1.5px solid #DDD', fontSize: '15px', boxSizing: 'border-box' }
