@@ -3,59 +3,72 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { type KitchenUser, type DoughStage, formatTs, hoursAgo, COLOR } from '@/lib/kitchen'
+import { type KitchenUser, type DoughStage, COLOR } from '@/lib/kitchen'
 
 interface DoughBatch {
   id: string
   stage: DoughStage
   teig_at: string | null
   teiglinge_at: string | null
-  kuehlschrank_at: string | null
+  kuehlschrank_at: string | null  // legacy
   draussen_at: string | null
   fertig_at: string | null
   draussen_stunden: number
+  kg_teig: number | null
+  anzahl_teiglinge: number | null
   notes: string | null
   user_id: string
   created_at: string
   kitchen_users?: { name: string }
 }
 
-const STAGE_LABELS: Record<DoughStage, string> = {
-  teig_gemacht: '1. Teig gemacht',
-  teiglinge_geformt: '2. Teiglinge geformt',
-  kuehlschrank: '3. Im Kühlschrank',
-  draussen: '4. Draußen (akklimatisieren)',
-  fertig: '5. Fertig ✅',
+// ── Prozess ────────────────────────────────────────────────────────────────
+// teig_gemacht (24h Kühlschrank) → teiglinge_geformt (24h Kühlschrank)
+// → draussen/rausgeholt (2h Raumtemp) → fertig ODER zurück in Kühlschrank
+// Gesamtlaufzeit: 96h ab teig_at
+
+const STAGE_LABELS: Record<string, string> = {
+  teig_gemacht:       '1. Teig gemacht — im Kühlschrank',
+  teiglinge_geformt:  '2. Teiglinge geformt — im Kühlschrank',
+  kuehlschrank:       '2. Im Kühlschrank',   // legacy
+  draussen:           '3. Rausgeholt — Raumtemperatur',
+  fertig:             '✅ Verarbeitet',
 }
 
-const STAGE_TIMER: Partial<Record<DoughStage, number>> = {
-  teig_gemacht: 24,
+const STAGE_TIMER_H: Partial<Record<string, number>> = {
+  teig_gemacht:      24,
   teiglinge_geformt: 24,
-  kuehlschrank: 24,
+  kuehlschrank:      24,  // legacy
 }
 
 function stageTs(b: DoughBatch): string | null {
-  const map: Record<DoughStage, string | null> = {
-    teig_gemacht: b.teig_at,
-    teiglinge_geformt: b.teiglinge_at,
-    kuehlschrank: b.kuehlschrank_at,
-    draussen: b.draussen_at,
-    fertig: b.fertig_at,
-  }
-  return map[b.stage]
+  if (b.stage === 'teig_gemacht')      return b.teig_at
+  if (b.stage === 'teiglinge_geformt') return b.teiglinge_at
+  if (b.stage === 'kuehlschrank')      return b.kuehlschrank_at
+  if (b.stage === 'draussen')          return b.draussen_at
+  return b.fertig_at
 }
 
-const STAGES_OPTIONS: { key: DoughStage; label: string }[] = [
-  { key: 'teig_gemacht',      label: '1. Teig gemacht' },
-  { key: 'teiglinge_geformt', label: '2. Teiglinge geformt' },
-  { key: 'kuehlschrank',      label: '3. Im Kühlschrank' },
-  { key: 'draussen',          label: '4. Draußen (akklimatisieren)' },
-]
-
-// Lokale Zeit → ISO-String
-function localToISO(dateStr: string, timeStr: string): string {
-  return new Date(`${dateStr}T${timeStr}:00`).toISOString()
+function hoursAgo(ts: string | null): number {
+  if (!ts) return 0
+  return (Date.now() - new Date(ts).getTime()) / 3_600_000
 }
+
+function fmtTs(ts: string | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function fmtDTLocal(ts: string | null): string {
+  if (!ts) return ''
+  return new Date(ts).toISOString().slice(0, 16)
+}
+
+function toISO(dtLocal: string): string {
+  return dtLocal ? new Date(dtLocal).toISOString() : ''
+}
+
+// ── Hauptkomponente ───────────────────────────────────────────────────────────
 
 export default function TeigClient() {
   const router = useRouter()
@@ -64,13 +77,19 @@ export default function TeigClient() {
   const [saving, setSaving] = useState<string | null>(null)
   const [showFinished, setShowFinished] = useState(false)
 
-  // Manueller Eintrag
+  // Neuer Teig — Formular
+  const [showNewForm, setShowNewForm] = useState(false)
+  const nowDT = () => new Date().toISOString().slice(0, 16)
+  const [newDT,  setNewDT]  = useState(nowDT)
+  const [newKg,  setNewKg]  = useState('')
+  const [newAnz, setNewAnz] = useState('')
+
+  // Manuell eintragen
   const [showManual, setShowManual] = useState(false)
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const nowStr   = new Date().toTimeString().slice(0, 5)
-  const [manStage, setManStage] = useState<DoughStage>('teig_gemacht')
-  const [manDate,  setManDate]  = useState(todayStr)
-  const [manTime,  setManTime]  = useState(nowStr)
+  const [manStage, setManStage] = useState<DoughStage>('teiglinge_geformt')
+  const [manDT,   setManDT]   = useState(nowDT)
+  const [manKg,   setManKg]   = useState('')
+  const [manAnz,  setManAnz]  = useState('')
 
   useEffect(() => {
     const u = localStorage.getItem('kitchen_user')
@@ -89,27 +108,70 @@ export default function TeigClient() {
 
   useEffect(() => { if (user) load() }, [user, load])
 
-  async function newBatch() {
+  async function createNew() {
     if (!user) return
     setSaving('new')
     await createClient().from('kitchen_dough_batches').insert({
-      user_id: user.id, stage: 'teig_gemacht', teig_at: new Date().toISOString(),
+      user_id: user.id,
+      stage: 'teig_gemacht',
+      teig_at: toISO(newDT) || new Date().toISOString(),
+      kg_teig: newKg ? parseFloat(newKg) : null,
+      anzahl_teiglinge: newAnz ? parseInt(newAnz) : null,
     })
-    await load()
-    setSaving(null)
+    setShowNewForm(false); setNewDT(nowDT()); setNewKg(''); setNewAnz('')
+    await load(); setSaving(null)
+  }
+
+  async function createManual() {
+    if (!user) return
+    setSaving('manual')
+    const ts = toISO(manDT) || new Date().toISOString()
+    const stageOrder = ['teig_gemacht', 'teiglinge_geformt', 'draussen']
+    const idx = stageOrder.indexOf(manStage)
+    const fields: Record<string, string | number | null> = {
+      user_id: user.id, stage: manStage,
+      kg_teig: manKg ? parseFloat(manKg) : null,
+      anzahl_teiglinge: manAnz ? parseInt(manAnz) : null,
+    }
+    const tsFields = ['teig_at', 'teiglinge_at', 'draussen_at']
+    for (let i = 0; i <= idx; i++) {
+      const backH = (idx - i) * 24
+      fields[tsFields[i]] = new Date(new Date(ts).getTime() - backH * 3_600_000).toISOString()
+    }
+    await createClient().from('kitchen_dough_batches').insert(fields)
+    setShowManual(false); setManDT(nowDT()); setManKg(''); setManAnz('')
+    await load(); setSaving(null)
   }
 
   async function advance(b: DoughBatch) {
     setSaving(b.id)
     const now = new Date().toISOString()
-    const updates: Record<string, string | DoughStage> = {}
-    if (b.stage === 'teig_gemacht')       { updates.stage = 'teiglinge_geformt'; updates.teiglinge_at = now }
-    else if (b.stage === 'teiglinge_geformt') { updates.stage = 'kuehlschrank'; updates.kuehlschrank_at = now }
-    else if (b.stage === 'kuehlschrank')  { updates.stage = 'draussen'; updates.draussen_at = now }
-    else if (b.stage === 'draussen')      { updates.stage = 'fertig'; updates.fertig_at = now }
-    await createClient().from('kitchen_dough_batches').update(updates).eq('id', b.id)
+    const u: Record<string, string | DoughStage> = {}
+    if (b.stage === 'teig_gemacht')                          { u.stage = 'teiglinge_geformt'; u.teiglinge_at = now }
+    else if (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank') { u.stage = 'draussen'; u.draussen_at = now }
+    else if (b.stage === 'draussen')                         { u.stage = 'fertig'; u.fertig_at = now }
+    await createClient().from('kitchen_dough_batches').update(u).eq('id', b.id)
+    await load(); setSaving(null)
+  }
+
+  async function zurueckInKuehlschrank(b: DoughBatch) {
+    setSaving(b.id + '-back')
+    // Zurück → Stage auf teiglinge_geformt, neues teiglinge_at = jetzt
+    await createClient().from('kitchen_dough_batches')
+      .update({ stage: 'teiglinge_geformt', teiglinge_at: new Date().toISOString(), draussen_at: null })
+      .eq('id', b.id)
+    await load(); setSaving(null)
+  }
+
+  async function deleteBatch(b: DoughBatch) {
+    if (!confirm(`Charge wirklich löschen?`)) return
+    await createClient().from('kitchen_dough_batches').delete().eq('id', b.id)
     await load()
-    setSaving(null)
+  }
+
+  async function saveEdit(id: string, updates: Record<string, string | number | null | DoughStage>) {
+    await createClient().from('kitchen_dough_batches').update(updates).eq('id', id)
+    await load()
   }
 
   async function setDraussen(b: DoughBatch, h: number) {
@@ -117,56 +179,17 @@ export default function TeigClient() {
     await load()
   }
 
-  async function deleteBatch(b: DoughBatch) {
-    if (!confirm(`Charge wirklich löschen? (${STAGE_LABELS[b.stage]})`)) return
-    await createClient().from('kitchen_dough_batches').delete().eq('id', b.id)
-    await load()
-  }
-
-  async function saveEdit(b: DoughBatch, updates: Record<string, string | DoughStage>) {
-    await createClient().from('kitchen_dough_batches').update(updates).eq('id', b.id)
-    await load()
-  }
-
-  async function saveManual() {
-    if (!user) return
-    setSaving('manual')
-    const ts = localToISO(manDate, manTime)
-
-    // Baue die Timestamps für alle vorherigen Stages (approximiert: jeweils -24h)
-    const stageOrder: DoughStage[] = ['teig_gemacht', 'teiglinge_geformt', 'kuehlschrank', 'draussen']
-    const idx = stageOrder.indexOf(manStage)
-
-    const entry: Record<string, string | number> = {
-      user_id: user.id,
-      stage: manStage,
-    }
-
-    // Aktueller Stage bekommt den eingetragenen Zeitstempel
-    // Vorherige Stages bekommen -24h pro Stage
-    const tsFields = ['teig_at', 'teiglinge_at', 'kuehlschrank_at', 'draussen_at']
-    for (let i = 0; i <= idx; i++) {
-      const hoursBack = (idx - i) * 24
-      const stageTs = new Date(new Date(ts).getTime() - hoursBack * 3_600_000).toISOString()
-      entry[tsFields[i]] = stageTs
-    }
-
-    await createClient().from('kitchen_dough_batches').insert(entry)
-    setShowManual(false)
-    await load()
-    setSaving(null)
-  }
-
-  const active = batches.filter(b => b.stage !== 'fertig')
+  const active   = batches.filter(b => b.stage !== 'fertig')
   const finished = batches.filter(b => b.stage === 'fertig')
-
   if (!user) return null
 
   return (
     <div style={{ paddingBottom: '40px' }}>
+
+      {/* Header */}
       <div style={{ background: '#1B3A1B', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ color: '#FFFFFF', fontSize: '18px', fontWeight: '800', margin: 0 }}>🫓 Teig-Tracker</h1>
+          <h1 style={{ color: '#FFF', fontSize: '18px', fontWeight: '800', margin: 0 }}>🫓 Teig-Tracker</h1>
           <p style={{ color: '#8FBF8F', fontSize: '12px', margin: '2px 0 0' }}>{user.name}</p>
         </div>
         <Link href="/kueche/home">
@@ -176,84 +199,119 @@ export default function TeigClient() {
 
       <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-        {/* Zwei Buttons: Jetzt + Manuell */}
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={newBatch} disabled={saving === 'new'} style={{
-            flex: 1, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '12px',
-            padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer',
-          }}>
-            🫓 + Teig jetzt gemacht
-          </button>
-          <button onClick={() => setShowManual(s => !s)} style={{
-            flex: 1, background: '#FFFFFF', color: '#3A7A3A', border: '2px solid #3A7A3A',
-            borderRadius: '12px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer',
-          }}>
-            ✏️ Manuell eintragen
-          </button>
+        {/* Prozess-Erklärung */}
+        <div style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', color: '#1B3A1B', lineHeight: '1.6' }}>
+          <b>Prozess:</b> Teig machen → 24h Kühlschrank → Teiglinge formen → 24h Kühlschrank → Rausnehmen → ~2h Raumtemperatur → Verarbeiten (oder zurück in Kühlschrank)<br/>
+          <b>Gesamtlaufzeit: 96h ab Teig-Herstellung</b>
         </div>
 
-        {/* Manuelles Formular */}
-        {showManual && (
-          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1B3A1B' }}>Bestehende Charge eintragen</h3>
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={() => { setShowNewForm(s => !s); setShowManual(false) }} style={{
+            flex: 1, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '12px',
+            padding: '14px', fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+          }}>🫓 + Neuer Teig</button>
+          <button onClick={() => { setShowManual(s => !s); setShowNewForm(false) }} style={{
+            flex: 1, background: '#FFF', color: '#3A7A3A', border: '2px solid #3A7A3A',
+            borderRadius: '12px', padding: '14px', fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+          }}>✏️ Manuell eintragen</button>
+        </div>
 
-            <div>
-              <label style={lblStyle}>Aktuelles Stadium</label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {STAGES_OPTIONS.map(s => (
+        {/* Neuer Teig Formular */}
+        {showNewForm && (
+          <FormCard title="Neuer Teig — jetzt gemacht" onClose={() => setShowNewForm(false)}>
+            <FormRow label="Zeitpunkt">
+              <input type="datetime-local" value={newDT} onChange={e => setNewDT(e.target.value)} style={inp} />
+            </FormRow>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>KG Teig</label>
+                <input type="number" step="0.1" min="0" placeholder="z.B. 5.5" value={newKg}
+                  onChange={e => setNewKg(e.target.value)} style={inp} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Anz. Teiglinge (später)</label>
+                <input type="number" min="0" placeholder="z.B. 18" value={newAnz}
+                  onChange={e => setNewAnz(e.target.value)} style={inp} />
+              </div>
+            </div>
+            <SaveBtn onClick={createNew} disabled={saving === 'new'} label="Teig eintragen" />
+          </FormCard>
+        )}
+
+        {/* Manuell Formular */}
+        {showManual && (
+          <FormCard title="Bestehende Charge eintragen" onClose={() => setShowManual(false)}>
+            <FormRow label="Aktuelles Stadium">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {[
+                  { key: 'teig_gemacht' as DoughStage,      label: '1. Teig gemacht (gerade in Kühlschrank)' },
+                  { key: 'teiglinge_geformt' as DoughStage, label: '2. Teiglinge geformt (gerade in Kühlschrank)' },
+                  { key: 'draussen' as DoughStage,          label: '3. Gerade rausgeholt' },
+                ].map(s => (
                   <button key={s.key} onClick={() => setManStage(s.key)} style={{
-                    padding: '10px 12px', borderRadius: '8px', border: '1.5px solid',
-                    borderColor: manStage === s.key ? '#3A7A3A' : '#DDD',
+                    padding: '9px 12px', borderRadius: '8px', textAlign: 'left', cursor: 'pointer',
+                    border: `1.5px solid ${manStage === s.key ? '#3A7A3A' : '#DDD'}`,
                     background: manStage === s.key ? '#E8F5E9' : '#FFF',
                     color: manStage === s.key ? '#1B3A1B' : '#555',
-                    cursor: 'pointer', fontSize: '14px', fontWeight: manStage === s.key ? '700' : '400',
-                    textAlign: 'left',
+                    fontWeight: manStage === s.key ? '700' : '400', fontSize: '13px',
                   }}>{s.label}</button>
                 ))}
               </div>
-            </div>
-
-            <div>
-              <label style={lblStyle}>Wann war das? (Datum)</label>
-              <input type="date" value={manDate} onChange={e => setManDate(e.target.value)}
-                style={inpStyle} />
-            </div>
-            <div>
-              <label style={lblStyle}>Uhrzeit</label>
-              <input type="time" value={manTime} onChange={e => setManTime(e.target.value)}
-                style={inpStyle} />
-            </div>
-            <div style={{ background: '#F0F4F0', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#555' }}>
-              💡 Die früheren Stadien werden automatisch mit jeweils -24h eingetragen.
+            </FormRow>
+            <FormRow label="Wann war das?">
+              <input type="datetime-local" value={manDT} onChange={e => setManDT(e.target.value)} style={inp} />
+            </FormRow>
+            <div style={{ background: '#F5F9F5', borderRadius: '8px', padding: '8px 10px', fontSize: '11px', color: '#555' }}>
+              💡 Frühere Stadien werden automatisch mit je -24h berechnet.
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => setShowManual(false)} style={{
-                flex: 1, background: '#F5F5F5', border: '1px solid #DDD', borderRadius: '8px',
-                padding: '12px', fontSize: '14px', cursor: 'pointer', color: '#555',
-              }}>Abbrechen</button>
-              <button onClick={saveManual} disabled={saving === 'manual'} style={{
-                flex: 2, background: '#3A7A3A', border: 'none', borderRadius: '8px',
-                padding: '12px', fontSize: '14px', fontWeight: '700', color: '#FFF', cursor: 'pointer',
-              }}>Speichern</button>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>KG Teig</label>
+                <input type="number" step="0.1" min="0" placeholder="z.B. 5.5" value={manKg}
+                  onChange={e => setManKg(e.target.value)} style={inp} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Anz. Teiglinge</label>
+                <input type="number" min="0" placeholder="z.B. 18" value={manAnz}
+                  onChange={e => setManAnz(e.target.value)} style={inp} />
+              </div>
             </div>
-          </div>
+            <SaveBtn onClick={createManual} disabled={saving === 'manual'} label="Speichern" />
+          </FormCard>
         )}
 
-        {active.length === 0 && (
+        {/* Aktive Chargen */}
+        {active.length === 0 && !showNewForm && !showManual && (
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Keine aktiven Chargen.</p>
         )}
+        {active.map(b => (
+          <BatchCard key={b.id}
+            b={b}
+            onAdvance={() => advance(b)}
+            onBack={() => zurueckInKuehlschrank(b)}
+            onDelete={() => deleteBatch(b)}
+            onSaveEdit={(u) => saveEdit(b.id, u)}
+            onSetDraussen={(h) => setDraussen(b, h)}
+            saving={saving === b.id || saving === b.id + '-back'}
+          />
+        ))}
 
-        {active.map(b => <BatchCard key={b.id} b={b} onAdvance={() => advance(b)} onSetDraussen={(h) => setDraussen(b, h)} onDelete={() => deleteBatch(b)} onSaveEdit={(u) => saveEdit(b, u)} saving={saving === b.id} />)}
-
+        {/* Fertige Chargen */}
         {finished.length > 0 && (
           <>
             <button onClick={() => setShowFinished(s => !s)} style={{
               background: '#F5F5F5', border: '1px solid #DDD', borderRadius: '10px',
               padding: '10px', fontSize: '13px', cursor: 'pointer', color: '#555',
             }}>
-              {showFinished ? '▲ Fertige ausblenden' : `▼ ${finished.length} fertige Chargen anzeigen`}
+              {showFinished ? '▲ Ausblenden' : `▼ ${finished.length} verarbeitete Chargen`}
             </button>
-            {showFinished && finished.map(b => <BatchCard key={b.id} b={b} saving={false} finished />)}
+            {showFinished && finished.map(b => (
+              <BatchCard key={b.id} b={b} saving={false} finished
+                onDelete={() => deleteBatch(b)}
+                onSaveEdit={(u) => saveEdit(b.id, u)}
+              />
+            ))}
           </>
         )}
       </div>
@@ -261,41 +319,49 @@ export default function TeigClient() {
   )
 }
 
-function BatchCard({ b, onAdvance, onSetDraussen, onDelete, onSaveEdit, saving, finished }: {
+// ── BatchCard ─────────────────────────────────────────────────────────────────
+
+function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, saving, finished }: {
   b: DoughBatch
   onAdvance?: () => void
-  onSetDraussen?: (h: number) => void
+  onBack?: () => void
   onDelete?: () => void
-  onSaveEdit?: (updates: Record<string, string | DoughStage>) => void
+  onSaveEdit?: (u: Record<string, string | number | null | DoughStage>) => void
+  onSetDraussen?: (h: number) => void
   saving: boolean
   finished?: boolean
 }) {
   const [editMode, setEditMode] = useState(false)
-  const fmt = (ts: string | null) => ts ? new Date(ts).toISOString().slice(0, 16) : ''
-
-  // Edit state per stage
-  const [editTeig,       setEditTeig]       = useState(fmt(b.teig_at))
-  const [editTeiglinge,  setEditTeiglinge]  = useState(fmt(b.teiglinge_at))
-  const [editKuehl,      setEditKuehl]      = useState(fmt(b.kuehlschrank_at))
-  const [editDraussen,   setEditDraussen]   = useState(fmt(b.draussen_at))
-  const [editStage,      setEditStage]      = useState<DoughStage>(b.stage)
+  const [eTeig,   setETeig]   = useState(fmtDTLocal(b.teig_at))
+  const [eTeigl,  setETeigl]  = useState(fmtDTLocal(b.teiglinge_at))
+  const [eDraus,  setEDraus]  = useState(fmtDTLocal(b.draussen_at))
+  const [eStage,  setEStage]  = useState<DoughStage>(b.stage)
+  const [eKg,     setEKg]     = useState(b.kg_teig ? String(b.kg_teig) : '')
+  const [eAnz,    setEAnz]    = useState(b.anzahl_teiglinge ? String(b.anzahl_teiglinge) : '')
 
   function saveEdit() {
-    const toISO = (v: string) => v ? new Date(v).toISOString() : ''
-    const updates: Record<string, string | DoughStage> = { stage: editStage }
-    if (editTeig)      updates.teig_at = toISO(editTeig)
-    if (editTeiglinge) updates.teiglinge_at = toISO(editTeiglinge)
-    if (editKuehl)     updates.kuehlschrank_at = toISO(editKuehl)
-    if (editDraussen)  updates.draussen_at = toISO(editDraussen)
-    onSaveEdit?.(updates)
+    onSaveEdit?.({
+      stage: eStage,
+      teig_at:       eTeig  ? toISO(eTeig)  : null,
+      teiglinge_at:  eTeigl ? toISO(eTeigl) : null,
+      draussen_at:   eDraus ? toISO(eDraus) : null,
+      kg_teig:       eKg  ? parseFloat(eKg)  : null,
+      anzahl_teiglinge: eAnz ? parseInt(eAnz) : null,
+    })
     setEditMode(false)
   }
 
   const ts = stageTs(b)
-  const timerH = b.stage === 'draussen' ? b.draussen_stunden : (STAGE_TIMER[b.stage] ?? 0)
-  const elapsed = ts ? hoursAgo(ts)! : null
+  const timerH = b.stage === 'draussen' ? b.draussen_stunden : (STAGE_TIMER_H[b.stage] ?? 0)
+  const elapsed = ts ? hoursAgo(ts) : null
   const remaining = elapsed !== null && timerH ? Math.max(0, timerH - elapsed) : null
-  const overdue = remaining !== null && remaining === 0
+  const overdue = remaining === 0
+
+  // 96h Gesamtlaufzeit
+  const totalElapsed = b.teig_at ? hoursAgo(b.teig_at) : null
+  const totalLeft = totalElapsed !== null ? Math.max(0, 96 - totalElapsed) : null
+  const totalPct  = totalElapsed !== null ? Math.min(100, (totalElapsed / 96) * 100) : 0
+  const totalColor = totalLeft === null ? '#999' : totalLeft > 24 ? '#3A7A3A' : totalLeft > 8 ? '#FF8F00' : '#E53935'
 
   const col = finished ? 'green'
     : !ts ? 'grey'
@@ -303,107 +369,87 @@ function BatchCard({ b, onAdvance, onSetDraussen, onDelete, onSaveEdit, saving, 
     : remaining !== null && remaining < timerH * 0.25 ? 'yellow'
     : 'green'
 
-  const stages: Array<{ key: DoughStage; label: string; ts: string | null }> = [
-    { key: 'teig_gemacht',      label: 'Teig gemacht',      ts: b.teig_at },
-    { key: 'teiglinge_geformt', label: 'Teiglinge geformt', ts: b.teiglinge_at },
-    { key: 'kuehlschrank',      label: 'Kühlschrank',        ts: b.kuehlschrank_at },
-    { key: 'draussen',          label: 'Draußen',            ts: b.draussen_at },
-    { key: 'fertig',            label: 'Fertig',             ts: b.fertig_at },
-  ]
-  const currentIdx = stages.findIndex(s => s.key === b.stage)
+  const nextLabel = b.stage === 'teig_gemacht'      ? 'Teiglinge geformt →'
+    : (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank') ? 'Rausnehmen →'
+    : b.stage === 'draussen' ? '✅ Verarbeitet'
+    : ''
 
   return (
     <div style={{ background: COLOR[col].bg, border: `2px solid ${COLOR[col].border}`, borderRadius: '14px', padding: '14px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-        <div>
-          <div style={{ fontWeight: '700', fontSize: '15px', color: COLOR[col].text }}>{STAGE_LABELS[b.stage]}</div>
-          <div style={{ fontSize: '12px', color: '#555', marginTop: '2px' }}>
-            {ts ? `seit ${formatTs(ts)}` : ''}
+
+      {/* Kopfzeile */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: '700', fontSize: '14px', color: COLOR[col].text }}>{STAGE_LABELS[b.stage]}</div>
+          <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
+            seit: {fmtTs(ts)}
             {remaining !== null && !finished && (
-              <span style={{ color: COLOR[col].text, fontWeight: '600', marginLeft: '6px' }}>
-                {overdue ? '⏰ FÄLLIG!' : `⏱ ~${Math.ceil(remaining)} Std`}
+              <span style={{ color: COLOR[col].text, fontWeight: '700', marginLeft: '8px' }}>
+                {overdue ? '⏰ FÄLLIG!' : `⏱ noch ~${Math.ceil(remaining)}h`}
               </span>
             )}
           </div>
-          <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>von: {(b.kitchen_users as { name: string } | undefined)?.name ?? '—'}</div>
+          {/* KG + Anzahl */}
+          <div style={{ fontSize: '11px', color: '#666', marginTop: '3px', display: 'flex', gap: '12px' }}>
+            {b.kg_teig ? <span>⚖️ {b.kg_teig} kg</span> : null}
+            {b.anzahl_teiglinge ? <span>🫓 {b.anzahl_teiglinge} Stück</span> : null}
+            <span style={{ color: '#888' }}>von {(b.kitchen_users as { name: string } | undefined)?.name ?? '—'}</span>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-          {!finished && b.stage !== 'fertig' && (
-            <button onClick={onAdvance} disabled={saving} style={{
-              background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
-              padding: '8px 12px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-            }}>
-              Nächste →
-            </button>
-          )}
+        <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
           {!finished && (
             <button onClick={() => setEditMode(e => !e)} style={{
-              background: editMode ? '#555' : '#FFF', border: '1px solid #999', color: editMode ? '#FFF' : '#555',
-              borderRadius: '8px', padding: '8px 10px', fontSize: '13px', cursor: 'pointer',
+              background: editMode ? '#555' : '#FFF', border: '1px solid #999',
+              color: editMode ? '#FFF' : '#555', borderRadius: '8px',
+              padding: '7px 9px', fontSize: '13px', cursor: 'pointer',
             }}>✏️</button>
           )}
           {onDelete && (
             <button onClick={onDelete} style={{
               background: 'transparent', border: '1px solid #E53935', color: '#E53935',
-              borderRadius: '8px', padding: '8px 10px', fontSize: '13px', cursor: 'pointer',
+              borderRadius: '8px', padding: '7px 9px', fontSize: '13px', cursor: 'pointer',
             }}>🗑</button>
           )}
         </div>
       </div>
 
-      {/* ── Edit-Modus ───────────────────────────────────────────── */}
-      {editMode && (
-        <div style={{ background: '#FFFFFFCC', borderRadius: '10px', padding: '12px', marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ fontSize: '12px', fontWeight: '700', color: '#1B3A1B', marginBottom: '2px' }}>Zeitstempel bearbeiten:</div>
-
-          {[
-            { label: '1. Teig gemacht',      val: editTeig,      set: setEditTeig,      show: true },
-            { label: '2. Teiglinge geformt', val: editTeiglinge, set: setEditTeiglinge, show: true },
-            { label: '3. Im Kühlschrank',    val: editKuehl,     set: setEditKuehl,     show: true },
-            { label: '4. Draußen',           val: editDraussen,  set: setEditDraussen,  show: true },
-          ].map(row => (
-            <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <div style={{ fontSize: '12px', color: '#555', width: '140px', flexShrink: 0 }}>{row.label}</div>
-              <input
-                type="datetime-local"
-                value={row.val}
-                onChange={e => row.set(e.target.value)}
-                style={{ padding: '5px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px', flex: 1 }}
-              />
-            </div>
-          ))}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-            <div style={{ fontSize: '12px', color: '#555', width: '140px', flexShrink: 0 }}>Aktuelles Stadium:</div>
-            <select value={editStage} onChange={e => setEditStage(e.target.value as DoughStage)}
-              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }}>
-              <option value="teig_gemacht">1. Teig gemacht</option>
-              <option value="teiglinge_geformt">2. Teiglinge geformt</option>
-              <option value="kuehlschrank">3. Im Kühlschrank</option>
-              <option value="draussen">4. Draußen</option>
-              <option value="fertig">5. Fertig</option>
-            </select>
+      {/* 96h Gesamtlaufzeit */}
+      {b.teig_at && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: totalColor, fontWeight: '600', marginBottom: '3px' }}>
+            <span>Gesamtlaufzeit (96h)</span>
+            <span>{totalLeft !== null ? (totalLeft < 0.5 ? 'Abgelaufen!' : `noch ~${Math.ceil(totalLeft)}h`) : '—'}</span>
           </div>
-
-          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-            <button onClick={() => setEditMode(false)} style={{
-              flex: 1, background: '#F5F5F5', border: '1px solid #DDD', borderRadius: '8px',
-              padding: '10px', fontSize: '13px', cursor: 'pointer', color: '#555',
-            }}>Abbrechen</button>
-            <button onClick={saveEdit} style={{
-              flex: 2, background: '#3A7A3A', border: 'none', borderRadius: '8px',
-              padding: '10px', fontSize: '13px', fontWeight: '700', color: '#FFF', cursor: 'pointer',
-            }}>Speichern</button>
+          <div style={{ height: '5px', background: '#E0E0E0', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${totalPct}%`, background: totalColor, borderRadius: '3px', transition: 'width 0.3s' }} />
           </div>
         </div>
       )}
 
-      {/* Draußen Stunden-Auswahl (nur wenn Kühlschrank-Stage aktiv) */}
-      {b.stage === 'kuehlschrank' && onSetDraussen && (
-        <div style={{ background: '#FFFFFFAA', borderRadius: '8px', padding: '8px', marginBottom: '8px' }}>
-          <div style={{ fontSize: '12px', color: '#555', marginBottom: '6px' }}>Akklimatisierungs-Stunden (nach Kühlschrank):</div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {[1,2,3,4,6].map(h => (
+      {/* Aktions-Buttons */}
+      {!finished && !editMode && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: b.stage === 'draussen' ? '0' : '0' }}>
+          {nextLabel && (
+            <button onClick={onAdvance} disabled={saving} style={{
+              flex: 2, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
+              padding: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+            }}>{nextLabel}</button>
+          )}
+          {b.stage === 'draussen' && onBack && (
+            <button onClick={onBack} disabled={saving} style={{
+              flex: 1, background: '#FFF', color: '#1565C0', border: '1.5px solid #1565C0',
+              borderRadius: '8px', padding: '10px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+            }}>🔄 Zurück in Kühlschrank</button>
+          )}
+        </div>
+      )}
+
+      {/* Raumtemp-Stunden (bei draussen) */}
+      {b.stage === 'draussen' && !editMode && onSetDraussen && (
+        <div style={{ marginTop: '8px', background: '#FFFFFF88', borderRadius: '8px', padding: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#555', marginBottom: '5px' }}>Raumtemperatur-Zeit:</div>
+          <div style={{ display: 'flex', gap: '5px' }}>
+            {[1, 2, 3, 4].map(h => (
               <button key={h} onClick={() => onSetDraussen(h)} style={{
                 padding: '5px 10px', borderRadius: '6px', border: '1px solid #999',
                 background: b.draussen_stunden === h ? '#3A7A3A' : '#FFF',
@@ -416,23 +462,113 @@ function BatchCard({ b, onAdvance, onSetDraussen, onDelete, onSaveEdit, saving, 
       )}
 
       {/* Timeline */}
-      <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
-        {stages.map((s, i) => (
-          <div key={s.key} style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{
-              height: '4px', borderRadius: '2px',
+      {!editMode && (
+        <div style={{ display: 'flex', gap: '4px', marginTop: '10px' }}>
+          {[
+            { label: 'Teig',      ts: b.teig_at },
+            { label: 'Teiglinge', ts: b.teiglinge_at },
+            { label: 'Raus',      ts: b.draussen_at },
+            { label: 'Fertig',    ts: b.fertig_at },
+          ].map((s, i) => {
+            const done = !!s.ts
+            return (
+              <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+                <div style={{ height: '4px', borderRadius: '2px', background: done ? '#3A7A3A' : '#CCC' }} />
+                <div style={{ fontSize: '9px', color: done ? '#3A7A3A' : '#AAA', marginTop: '3px' }}>
+                  {s.ts ? new Date(s.ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : s.label}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
-              background: i <= currentIdx ? '#3A7A3A' : '#CCCCCC',
-            }} />
-            <div style={{ fontSize: '9px', color: i <= currentIdx ? '#3A7A3A' : '#AAA', marginTop: '3px' }}>
-              {s.ts ? new Date(s.ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '—'}
+      {/* Edit Formular */}
+      {editMode && (
+        <div style={{ background: '#FFFFFFCC', borderRadius: '10px', padding: '12px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ fontSize: '13px', fontWeight: '700', color: '#1B3A1B' }}>Zeitstempel bearbeiten</div>
+          {[
+            { label: '1. Teig gemacht',      val: eTeig,  set: setETeig },
+            { label: '2. Teiglinge geformt', val: eTeigl, set: setETeigl },
+            { label: '3. Rausgeholt',        val: eDraus, set: setEDraus },
+          ].map(row => (
+            <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '12px', color: '#555', minWidth: '130px' }}>{row.label}</div>
+              <input type="datetime-local" value={row.val} onChange={e => row.set(e.target.value)}
+                style={{ flex: 1, padding: '5px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ fontSize: '12px', color: '#555', minWidth: '130px' }}>Stadium</div>
+            <select value={eStage} onChange={e => setEStage(e.target.value as DoughStage)}
+              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }}>
+              <option value="teig_gemacht">1. Teig gemacht</option>
+              <option value="teiglinge_geformt">2. Teiglinge geformt</option>
+              <option value="draussen">3. Rausgeholt</option>
+              <option value="fertig">Verarbeitet</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={lbl}>KG Teig</label>
+              <input type="number" step="0.1" value={eKg} onChange={e => setEKg(e.target.value)}
+                placeholder="z.B. 5.5" style={inp} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={lbl}>Anz. Teiglinge</label>
+              <input type="number" value={eAnz} onChange={e => setEAnz(e.target.value)}
+                placeholder="z.B. 18" style={inp} />
             </div>
           </div>
-        ))}
-      </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => setEditMode(false)} style={{
+              flex: 1, background: '#F5F5F5', border: '1px solid #DDD', borderRadius: '8px',
+              padding: '10px', fontSize: '13px', cursor: 'pointer', color: '#555',
+            }}>Abbrechen</button>
+            <button onClick={saveEdit} style={{
+              flex: 2, background: '#3A7A3A', border: 'none', borderRadius: '8px',
+              padding: '10px', fontSize: '13px', fontWeight: '700', color: '#FFF', cursor: 'pointer',
+            }}>Speichern</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-const lblStyle: React.CSSProperties = { fontSize: '12px', fontWeight: '600', color: '#555', display: 'block', marginBottom: '6px' }
-const inpStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1.5px solid #DDD', fontSize: '15px', boxSizing: 'border-box' }
+// ── Hilfskomponenten ──────────────────────────────────────────────────────────
+
+function FormCard({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div style={{ background: '#FFF', borderRadius: '14px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontWeight: '700', fontSize: '14px', color: '#1B3A1B' }}>{title}</div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#999' }}>✕</button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function FormRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={lbl}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function SaveBtn({ onClick, disabled, label }: { onClick: () => void; disabled: boolean; label: string }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      background: disabled ? '#888' : '#3A7A3A', color: '#FFF', border: 'none',
+      borderRadius: '10px', padding: '12px', fontSize: '15px', fontWeight: '700',
+      cursor: 'pointer', width: '100%',
+    }}>{label}</button>
+  )
+}
+
+// ── Style-Konstanten ──────────────────────────────────────────────────────────
+const lbl: React.CSSProperties = { fontSize: '12px', fontWeight: '600', color: '#555', display: 'block', marginBottom: '4px' }
+const inp: React.CSSProperties = { width: '100%', padding: '9px 10px', borderRadius: '8px', border: '1.5px solid #DDD', fontSize: '14px', boxSizing: 'border-box' }
