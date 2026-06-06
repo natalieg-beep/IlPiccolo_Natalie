@@ -1,27 +1,17 @@
 // Supabase Edge Function: check-timers
-// Läuft jede Stunde → prüft Teig-Timer + Frische-Tasks → Telegram an alle
+// Läuft alle 30 Min → prüft Teig + Frische → sendet Vorwarnung (1h vorher) + Fälligkeit
+//
+// Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_VEDAT, TELEGRAM_CHAT_RAKIM, TELEGRAM_CHAT_NATALIE
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// ── Frische-Regeln (müssen mit kitchen.ts übereinstimmen) ────────────────────
-const FRESHNESS_TASKS = [
-  { key: 'zwiebeln',       label: 'Zwiebeln',            hours: 24 },
-  { key: 'paprika',        label: 'Paprika',              hours: 48 },
-  { key: 'pilze',          label: 'Pilze',                hours: 24 },
-  { key: 'mozza',          label: 'Mozza',                hours: 24 },
-  { key: 'sucuk',          label: 'Sucuk',                hours: 48 },
-  { key: 'salami',         label: 'Ital. Salami',         hours: 48 },
-  { key: 'salami_scharf',  label: 'Scharfe Ital. Salami', hours: 48 },
-  { key: 'jambon',         label: 'Jambon',               hours: 48 },
-  { key: 'pastirma',       label: 'Pastırma',             hours: 48 },
-  { key: 'tiramisu',       label: 'Tiramisu',             hours: 48 },
-  { key: 'piccolo_crunch', label: 'Piccolo Crunch',       hours: 48 },
-]
+// Fenster: Benachrichtigung gilt als "in dieser Periode" wenn elapsed im 30-Min-Fenster liegt
+const WINDOW_H = 0.5
 
 const DOUGH_STAGE_LABELS: Record<string, string> = {
-  teig_gemacht:       '➡️ Teiglinge formen!',
-  teiglinge_geformt:  '➡️ In den Kühlschrank!',
-  kuehlschrank:       '➡️ Raus aus dem Kühlschrank!',
+  teig_gemacht:       '➡️ Jetzt Teiglinge formen!',
+  teiglinge_geformt:  '➡️ Teiglinge in den Kühlschrank!',
+  kuehlschrank:       '➡️ Teiglinge rausnehmen!',
   draussen:           '✅ Teig fertig zum Backen!',
 }
 
@@ -46,14 +36,18 @@ async function broadcast(token: string, chats: string[], text: string) {
   }
 }
 
+function inWindow(elapsedH: number, targetH: number): boolean {
+  return elapsedH >= targetH && elapsedH < targetH + WINDOW_H
+}
+
 Deno.serve(async () => {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  const token   = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
-  const chats   = [
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
+  const chats = [
     Deno.env.get('TELEGRAM_CHAT_VEDAT')   ?? '',
     Deno.env.get('TELEGRAM_CHAT_RAKIM')   ?? '',
     Deno.env.get('TELEGRAM_CHAT_NATALIE') ?? '',
@@ -62,7 +56,7 @@ Deno.serve(async () => {
   const now = Date.now()
   const notified: string[] = []
 
-  // ── 1. Teig-Timer prüfen ─────────────────────────────────────────────────
+  // ── 1. Teig-Timer ───────────────────────────────────────────────────────────
   const { data: batches } = await supabase
     .from('kitchen_dough_batches')
     .select('*')
@@ -75,45 +69,66 @@ Deno.serve(async () => {
       : stage === 'kuehlschrank'      ? b.kuehlschrank_at
       : stage === 'draussen'          ? b.draussen_at
       : null
-
     if (!tsField) continue
+
     const elapsedH = (now - new Date(tsField).getTime()) / 3_600_000
     const limitH = stage === 'draussen' ? (b.draussen_stunden ?? 2) : (DOUGH_STAGE_HOURS[stage] ?? 999)
+    const action = DOUGH_STAGE_LABELS[stage] ?? 'Nächste Stage'
+    const gestartet = new Date(b.teig_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    const gesamtLeft = Math.max(0, 96 - elapsedH)
 
-    if (elapsedH >= limitH && elapsedH < limitH + 1) {
-      const action = DOUGH_STAGE_LABELS[stage] ?? 'Nächste Stage'
-      const gestartet = new Date(b.teig_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-      const msg = `🍕 <b>Il Piccolo Küche</b>\n⏰ <b>TEIG BEREIT!</b>\n${action}\n\n<i>Charge gestartet: ${gestartet}</i>`
+    // Vorwarnung: 1h vor Fälligkeit
+    if (inWindow(elapsedH, limitH - 1)) {
+      const msg = `🍕 <b>Il Piccolo Küche</b>\n⚠️ <b>TEIG — noch 1 Stunde!</b>\n${action}\n\n<i>Charge: ${gestartet} · noch ~${Math.ceil(gesamtLeft)}h Gesamtlaufzeit</i>`
       await broadcast(token, chats, msg)
-      notified.push(`teig:${b.id}(${stage})`)
+      notified.push(`teig-warn:${b.id}(${stage})`)
+    }
+
+    // Fälligkeit
+    if (inWindow(elapsedH, limitH)) {
+      const msg = `🍕 <b>Il Piccolo Küche</b>\n⏰ <b>TEIG JETZT FÄLLIG!</b>\n${action}\n\n<i>Charge: ${gestartet} · noch ~${Math.ceil(gesamtLeft)}h Gesamtlaufzeit</i>`
+      await broadcast(token, chats, msg)
+      notified.push(`teig-due:${b.id}(${stage})`)
     }
   }
 
-  // ── 2. Frische-Tasks prüfen ───────────────────────────────────────────────
-  // Letzten Log pro Task holen
+  // ── 2. Frische-Tasks ────────────────────────────────────────────────────────
+  const { data: settings } = await supabase
+    .from('kitchen_freshness_settings')
+    .select('task_key, label, hours, warn_before_hours')
+
   const { data: logs } = await supabase
     .from('kitchen_task_logs')
     .select('task_key, logged_at')
     .order('logged_at', { ascending: false })
 
-  // Neuesten Log pro task_key
+  // Neuester Log pro task_key
   const latestLog: Record<string, string> = {}
   for (const log of logs ?? []) {
     if (!latestLog[log.task_key]) latestLog[log.task_key] = log.logged_at
   }
 
-  for (const task of FRESHNESS_TASKS) {
-    const ts = latestLog[task.key]
-    if (!ts) continue // noch nie eingetragen → keine Nachricht
+  for (const task of settings ?? []) {
+    const ts = latestLog[task.task_key]
+    if (!ts) continue
 
     const elapsedH = (now - new Date(ts).getTime()) / 3_600_000
+    const limitH = task.hours
+    const warnH = task.warn_before_hours  // null = keine Vorwarnung
+    const zeitpunkt = new Date(ts).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-    // Sende genau wenn die Grenze in dieser Stunde überschritten wurde
-    if (elapsedH >= task.hours && elapsedH < task.hours + 1) {
-      const zeitpunkt = new Date(ts).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-      const msg = `🍕 <b>Il Piccolo Küche</b>\n⚠️ <b>${task.label} nicht mehr frisch!</b>\n\nEingetragen: ${zeitpunkt}\nBitte neu vorbereiten.`
+    // Vorwarnung (nur wenn warn_before_hours gesetzt)
+    if (warnH && inWindow(elapsedH, limitH - warnH)) {
+      const msg = `🍕 <b>Il Piccolo Küche</b>\n⚠️ <b>${task.label} — noch ${warnH}h frisch!</b>\n\nEingetragen: ${zeitpunkt}\nBitte bald neu vorbereiten.`
       await broadcast(token, chats, msg)
-      notified.push(`frische:${task.key}`)
+      notified.push(`frische-warn:${task.task_key}`)
+    }
+
+    // Fälligkeit
+    if (inWindow(elapsedH, limitH)) {
+      const msg = `🍕 <b>Il Piccolo Küche</b>\n🚨 <b>${task.label} nicht mehr frisch!</b>\n\nEingetragen: ${zeitpunkt}\nBitte sofort neu vorbereiten!`
+      await broadcast(token, chats, msg)
+      notified.push(`frische-due:${task.task_key}`)
     }
   }
 
