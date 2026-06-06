@@ -36,9 +36,10 @@ Deno.serve(async () => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  const token     = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
-  const chatVedat = Deno.env.get('TELEGRAM_CHAT_VEDAT') ?? ''
-  const chatRakim = Deno.env.get('TELEGRAM_CHAT_RAKIM') ?? ''
+  const token      = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
+  const chatVedat  = Deno.env.get('TELEGRAM_CHAT_VEDAT') ?? ''
+  const chatRakim  = Deno.env.get('TELEGRAM_CHAT_RAKIM') ?? ''
+  const chatNatalie = Deno.env.get('TELEGRAM_CHAT_NATALIE') ?? ''
 
   const { data: batches } = await supabase
     .from('kitchen_dough_batches')
@@ -71,6 +72,7 @@ Deno.serve(async () => {
 
       await sendTelegram(token, chatVedat, msg)
       await sendTelegram(token, chatRakim, msg)
+      await sendTelegram(token, chatNatalie, msg)
 
       notified.push(`${b.id} (${stage})`)
     }

@@ -20,10 +20,16 @@ export const FRESHNESS_TASKS: TaskDef[] = [
 ]
 
 export const BELAG_TASKS: TaskDef[] = [
-  { key: 'sucuk',   label: 'Sucuk',         type: 'freshness', hours: 48, icon: '🥩' },
-  { key: 'salami',  label: 'Ital. Salami',  type: 'freshness', hours: 48, icon: '🍕' },
-  { key: 'jambon',  label: 'Jambon',        type: 'freshness', hours: 48, icon: '🥓' },
-  { key: 'pastirma',label: 'Pastırma',      type: 'freshness', hours: 48, icon: '🥩' },
+  { key: 'sucuk',        label: 'Sucuk',              type: 'freshness', hours: 48, icon: '🥩' },
+  { key: 'salami',       label: 'Ital. Salami',       type: 'freshness', hours: 48, icon: '🍕' },
+  { key: 'salami_scharf',label: 'Scharfe Ital. Salami',type: 'freshness', hours: 48, icon: '🌶️' },
+  { key: 'jambon',       label: 'Jambon',             type: 'freshness', hours: 48, icon: '🥓' },
+  { key: 'pastirma',     label: 'Pastırma',           type: 'freshness', hours: 48, icon: '🥩' },
+]
+
+export const DESSERT_TASKS: TaskDef[] = [
+  { key: 'tiramisu',      label: 'Tiramisu',       type: 'freshness', hours: 48, icon: '🍰' },
+  { key: 'piccolo_crunch',label: 'Piccolo Crunch', type: 'freshness', hours: 48, icon: '🍫' },
 ]
 
 export const DAILY_TASKS: TaskDef[] = [
@@ -77,6 +83,20 @@ export function formatTs(ts: string | null | undefined): string {
   if (!ts) return '—'
   return new Date(ts).toLocaleString('de-DE', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+  })
+}
+
+export function formatTsFull(ts: string | null | undefined): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('de-DE', {
+    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+  })
+}
+
+export function nextDueTs(ts: string, hours: number): string {
+  const due = new Date(new Date(ts).getTime() + hours * 3_600_000)
+  return due.toLocaleString('de-DE', {
+    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
   })
 }
 

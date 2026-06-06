@@ -4,9 +4,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import {
-  FRESHNESS_TASKS, BELAG_TASKS, DAILY_TASKS, LOG_TASKS,
+  FRESHNESS_TASKS, BELAG_TASKS, DESSERT_TASKS, DAILY_TASKS, LOG_TASKS,
   type KitchenUser, type TaskDef, type DoughStage,
-  hoursAgo, formatRelative, formatTs, isToday, freshnessColor, COLOR,
+  hoursAgo, formatRelative, formatTsFull, nextDueTs, formatTs, isToday, freshnessColor, COLOR,
 } from '@/lib/kitchen'
 
 interface DoughBatch {
@@ -228,6 +228,11 @@ export default function HomeClient() {
           {BELAG_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={() => logTask(t)} saving={saving === t.key} />)}
         </Section>
 
+        {/* ── DESSERTS ─────────────────────────────────────────── */}
+        <Section title="🍰 Desserts">
+          {DESSERT_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={() => logTask(t)} saving={saving === t.key} />)}
+        </Section>
+
         {/* ── TÄGLICH ──────────────────────────────────────────── */}
         <Section title="🧹 Täglich">
           {DAILY_TASKS.map(t => {
@@ -235,11 +240,21 @@ export default function HomeClient() {
             const done = isToday(ts)
             const col = done ? 'green' : 'red'
             return (
-              <div key={t.key} style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <span style={{ fontSize: '16px' }}>{t.icon}</span>{' '}
-                  <span style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>{t.label}</span>
-                  <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>{done ? `✓ ${formatRelative(ts)}` : 'Heute noch nicht'}</div>
+              <div key={t.key} style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>
+                    <span style={{ fontSize: '15px' }}>{t.icon}</span> {t.label}
+                  </div>
+                  {ts ? (
+                    <>
+                      <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>✓ {formatTsFull(ts)}</div>
+                      <div style={{ fontSize: '11px', color: COLOR[col].text, marginTop: '1px' }}>
+                        {done ? '⏱ nächste Kontrolle: morgen' : '⚠️ Heute noch nicht erledigt!'}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
+                  )}
                 </div>
                 <button onClick={() => logTask(t)} disabled={saving === t.key}
                   style={btnStyle(done ? '#4CAF50' : '#E53935', '#FFFFFF', '13px')}>
@@ -255,11 +270,16 @@ export default function HomeClient() {
           {LOG_TASKS.map(t => {
             const ts = latestLog(t.key)
             return (
-              <div key={t.key} style={{ background: '#FFFFFF', border: '1.5px solid #DDEEDD', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <span style={{ fontSize: '16px' }}>{t.icon}</span>{' '}
-                  <span style={{ fontWeight: '600', fontSize: '14px', color: '#1B3A1B' }}>{t.label}</span>
-                  <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>Zuletzt: {formatRelative(ts)}</div>
+              <div key={t.key} style={{ background: '#FFFFFF', border: '1.5px solid #DDEEDD', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: '600', fontSize: '14px', color: '#1B3A1B' }}>
+                    <span style={{ fontSize: '15px' }}>{t.icon}</span> {t.label}
+                  </div>
+                  {ts ? (
+                    <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>✓ {formatTsFull(ts)}</div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
+                  )}
                 </div>
                 <button onClick={() => logTask(t)} disabled={saving === t.key}
                   style={btnStyle('#3A7A3A', '#FFFFFF', '13px')}>
@@ -291,15 +311,29 @@ function Section({ title, children, action }: { title: string; children: React.R
 
 function TaskRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null; onLog: () => void; saving: boolean }) {
   const col = freshnessColor(ts, task.hours ?? 24)
+  const remainingH = ts && task.hours ? Math.max(0, (task.hours ?? 0) - hoursAgo(ts)!) : null
   return (
-    <div style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <div>
-        <span style={{ fontSize: '16px' }}>{task.icon}</span>{' '}
-        <span style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>{task.label}</span>
-        <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
-          {ts ? `Zuletzt: ${formatRelative(ts)}` : 'Noch nie'}
-          {task.hours && ts ? ` · noch ${Math.max(0, Math.ceil((task.hours ?? 0) - hoursAgo(ts)!))}h frisch` : ''}
+    <div style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>
+          <span style={{ fontSize: '15px' }}>{task.icon}</span> {task.label}
         </div>
+        {ts ? (
+          <>
+            <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
+              ✓ {formatTsFull(ts)}
+            </div>
+            {task.hours && (
+              <div style={{ fontSize: '11px', color: COLOR[col].text, marginTop: '1px' }}>
+                {remainingH! > 0
+                  ? `⏱ nächste Kontrolle: ${nextDueTs(ts, task.hours)}`
+                  : '⚠️ Fälligkeit abgelaufen!'}
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
+        )}
       </div>
       <button onClick={onLog} disabled={saving} style={btnStyle('#3A7A3A', '#FFFFFF', '13px')}>
         Jetzt ✓
