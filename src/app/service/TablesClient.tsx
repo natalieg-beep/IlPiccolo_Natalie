@@ -81,6 +81,13 @@ export default function TablesClient({
           <div style={{ fontSize: '11px', color: '#8A7A60' }}>Service · Tisch wählen</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <Link href="/kueche">
+            <button style={{
+              background: '#E8F5E9', border: '1px solid #4CAF50', color: '#1B3A1B',
+              padding: '7px 12px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer',
+              fontWeight: '600',
+            }}>🍕 Küche</button>
+          </Link>
           <Link href="/service/phrasen">
             <button style={{
               background: '#F0FAF0', border: '1px solid #A5D6A7', color: '#2E7D32',

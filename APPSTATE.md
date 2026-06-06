@@ -1,6 +1,6 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-05 | Letzter Commit: b3c6f5e**
+**Stand: 2026-06-06 | Letzter Commit: patch15-kueche**
 
 ## Stack
 - Next.js 16.2.6, App Router, TypeScript, Turbopack, `src/` dir
@@ -135,6 +135,7 @@ displayTotal = isGratis ? 0 : discountedPrice
 | patch13_discount_amount | orders.discount_amount | ✅ ausführen! |
 | patch14_tagesabschluss | daily_entries.kdv column | ✅ ausführen! |
 | phrases_patch10 | Service-Phrasen (Karte, Dessert, Tiramisu, Google) | ausführen! |
+| patch15_kueche | Küchen-Modul: kitchen_users, kitchen_dough_batches, kitchen_task_logs, kitchen_products | ausführen! |
 
 **Noch auszuführende Patches:**
 ```sql
