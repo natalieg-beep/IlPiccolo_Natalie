@@ -153,6 +153,13 @@ export default function HomeClient() {
           <Link href="/kueche/mdh">
             <button style={{ background: '#2D5A2D', border: 'none', color: '#FFFFFF', padding: '7px 12px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' }}>📦 MDH</button>
           </Link>
+          {(user.name === 'Natalie' || user.name === 'Vedat') && (
+            <Link href="/service">
+              <button style={{ background: 'transparent', border: '1px solid #4A6A4A', color: '#8FBF8F', padding: '7px 10px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                🍽️ Service
+              </button>
+            </Link>
+          )}
           <button
             onClick={() => { localStorage.removeItem('kitchen_user'); router.push('/kueche') }}
             style={{ background: 'transparent', border: '1px solid #4A6A4A', color: '#8FBF8F', padding: '7px 10px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer' }}
