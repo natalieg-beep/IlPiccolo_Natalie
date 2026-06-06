@@ -34,9 +34,12 @@ export const DESSERT_TASKS: TaskDef[] = [
 
 export const DAILY_TASKS: TaskDef[] = [
   { key: 'klo',              label: 'Klo putzen',       type: 'daily', icon: '🚽' },
-  { key: 'innen_wischen',    label: 'Innen wischen',    type: 'daily', icon: '🧹' },
+  { key: 'kueche_putzen',    label: 'Küche putzen',     type: 'daily', icon: '🍳' },
+  { key: 'kehren_innen',     label: 'Kehren innen',     type: 'daily', icon: '🧹' },
+  { key: 'kehren_aussen',    label: 'Kehren außen',     type: 'daily', icon: '🌿' },
+  { key: 'innen_wischen',    label: 'Innen wischen',    type: 'daily', icon: '🪣' },
   { key: 'terrasse_wasser',  label: 'Terrasse Wasser',  type: 'daily', icon: '💧' },
-  { key: 'terrasse_wischen', label: 'Terrasse wischen', type: 'daily', icon: '🪣' },
+  { key: 'terrasse_wischen', label: 'Terrasse wischen', type: 'daily', icon: '🫧' },
 ]
 
 export const LOG_TASKS: TaskDef[] = [

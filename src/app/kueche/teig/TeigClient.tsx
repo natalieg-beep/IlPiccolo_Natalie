@@ -117,6 +117,12 @@ export default function TeigClient() {
     await load()
   }
 
+  async function deleteBatch(b: DoughBatch) {
+    if (!confirm(`Charge wirklich löschen? (${STAGE_LABELS[b.stage]})`)) return
+    await createClient().from('kitchen_dough_batches').delete().eq('id', b.id)
+    await load()
+  }
+
   async function saveManual() {
     if (!user) return
     setSaving('manual')
@@ -232,7 +238,7 @@ export default function TeigClient() {
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Keine aktiven Chargen.</p>
         )}
 
-        {active.map(b => <BatchCard key={b.id} b={b} onAdvance={() => advance(b)} onSetDraussen={(h) => setDraussen(b, h)} saving={saving === b.id} />)}
+        {active.map(b => <BatchCard key={b.id} b={b} onAdvance={() => advance(b)} onSetDraussen={(h) => setDraussen(b, h)} onDelete={() => deleteBatch(b)} saving={saving === b.id} />)}
 
         {finished.length > 0 && (
           <>
@@ -250,8 +256,8 @@ export default function TeigClient() {
   )
 }
 
-function BatchCard({ b, onAdvance, onSetDraussen, saving, finished }: {
-  b: DoughBatch; onAdvance?: () => void; onSetDraussen?: (h: number) => void; saving: boolean; finished?: boolean
+function BatchCard({ b, onAdvance, onSetDraussen, onDelete, saving, finished }: {
+  b: DoughBatch; onAdvance?: () => void; onSetDraussen?: (h: number) => void; onDelete?: () => void; saving: boolean; finished?: boolean
 }) {
   const ts = stageTs(b)
   const timerH = b.stage === 'draussen' ? b.draussen_stunden : (STAGE_TIMER[b.stage] ?? 0)
@@ -289,14 +295,22 @@ function BatchCard({ b, onAdvance, onSetDraussen, saving, finished }: {
           </div>
           <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>von: {(b.kitchen_users as { name: string } | undefined)?.name ?? '—'}</div>
         </div>
-        {!finished && b.stage !== 'fertig' && (
-          <button onClick={onAdvance} disabled={saving} style={{
-            background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
-            padding: '8px 12px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-          }}>
-            Nächste Stage →
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+          {!finished && b.stage !== 'fertig' && (
+            <button onClick={onAdvance} disabled={saving} style={{
+              background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
+              padding: '8px 12px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+            }}>
+              Nächste →
+            </button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} style={{
+              background: 'transparent', border: '1px solid #E53935', color: '#E53935',
+              borderRadius: '8px', padding: '8px 10px', fontSize: '13px', cursor: 'pointer',
+            }}>🗑</button>
+          )}
+        </div>
       </div>
 
       {/* Draußen Stunden-Auswahl (nur wenn Kühlschrank-Stage aktiv) */}

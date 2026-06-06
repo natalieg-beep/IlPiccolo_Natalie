@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   FRESHNESS_TASKS, BELAG_TASKS, DESSERT_TASKS, DAILY_TASKS, LOG_TASKS,
   type KitchenUser, type TaskDef, type DoughStage,
-  hoursAgo, formatRelative, formatTsFull, nextDueTs, formatTs, isToday, freshnessColor, COLOR,
+  hoursAgo, formatTsFull, nextDueTs, formatTs, isToday, freshnessColor, COLOR,
 } from '@/lib/kitchen'
 
 interface DoughBatch {
@@ -95,10 +95,14 @@ export default function HomeClient() {
   const latestLog = (key: string): string | null =>
     logs.find(l => l.task_key === key)?.logged_at ?? null
 
-  async function logTask(task: TaskDef) {
+  async function logTask(task: TaskDef, isoTs?: string) {
     if (!user) return
     setSaving(task.key)
-    await createClient().from('kitchen_task_logs').insert({ task_key: task.key, user_id: user.id })
+    await createClient().from('kitchen_task_logs').insert({
+      task_key: task.key,
+      user_id: user.id,
+      logged_at: isoTs ?? new Date().toISOString(),
+    })
     await load()
     setSaving(null)
   }
@@ -220,74 +224,27 @@ export default function HomeClient() {
 
         {/* ── FRISCHE ──────────────────────────────────────────── */}
         <Section title="🥬 Frische">
-          {FRESHNESS_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={() => logTask(t)} saving={saving === t.key} />)}
+          {FRESHNESS_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={(iso) => logTask(t, iso)} saving={saving === t.key} />)}
         </Section>
 
         {/* ── BELAG VORBEREITUNG ────────────────────────────────── */}
         <Section title="🍕 Belag Vorbereitung">
-          {BELAG_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={() => logTask(t)} saving={saving === t.key} />)}
+          {BELAG_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={(iso) => logTask(t, iso)} saving={saving === t.key} />)}
         </Section>
 
         {/* ── DESSERTS ─────────────────────────────────────────── */}
         <Section title="🍰 Desserts">
-          {DESSERT_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={() => logTask(t)} saving={saving === t.key} />)}
+          {DESSERT_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={(iso) => logTask(t, iso)} saving={saving === t.key} />)}
         </Section>
 
         {/* ── TÄGLICH ──────────────────────────────────────────── */}
         <Section title="🧹 Täglich">
-          {DAILY_TASKS.map(t => {
-            const ts = latestLog(t.key)
-            const done = isToday(ts)
-            const col = done ? 'green' : 'red'
-            return (
-              <div key={t.key} style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>
-                    <span style={{ fontSize: '15px' }}>{t.icon}</span> {t.label}
-                  </div>
-                  {ts ? (
-                    <>
-                      <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>✓ {formatTsFull(ts)}</div>
-                      <div style={{ fontSize: '11px', color: COLOR[col].text, marginTop: '1px' }}>
-                        {done ? '⏱ nächste Kontrolle: morgen' : '⚠️ Heute noch nicht erledigt!'}
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
-                  )}
-                </div>
-                <button onClick={() => logTask(t)} disabled={saving === t.key}
-                  style={btnStyle(done ? '#4CAF50' : '#E53935', '#FFFFFF', '13px')}>
-                  {done ? '✓ Nochmal' : 'Erledigt'}
-                </button>
-              </div>
-            )
-          })}
+          {DAILY_TASKS.map(t => <DailyRow key={t.key} task={t} ts={latestLog(t.key)} onLog={(iso) => logTask(t, iso)} saving={saving === t.key} />)}
         </Section>
 
         {/* ── SONSTIGES ────────────────────────────────────────── */}
         <Section title="🔧 Sonstiges">
-          {LOG_TASKS.map(t => {
-            const ts = latestLog(t.key)
-            return (
-              <div key={t.key} style={{ background: '#FFFFFF', border: '1.5px solid #DDEEDD', borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', fontSize: '14px', color: '#1B3A1B' }}>
-                    <span style={{ fontSize: '15px' }}>{t.icon}</span> {t.label}
-                  </div>
-                  {ts ? (
-                    <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>✓ {formatTsFull(ts)}</div>
-                  ) : (
-                    <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
-                  )}
-                </div>
-                <button onClick={() => logTask(t)} disabled={saving === t.key}
-                  style={btnStyle('#3A7A3A', '#FFFFFF', '13px')}>
-                  Jetzt
-                </button>
-              </div>
-            )
-          })}
+          {LOG_TASKS.map(t => <TaskRow key={t.key} task={t} ts={latestLog(t.key)} onLog={(iso) => logTask(t, iso)} saving={saving === t.key} />)}
         </Section>
 
       </div>
@@ -309,35 +266,102 @@ function Section({ title, children, action }: { title: string; children: React.R
   )
 }
 
-function TaskRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null; onLog: () => void; saving: boolean }) {
+// Lokale Datum+Zeit → ISO
+function toISO(date: string, time: string) {
+  return new Date(`${date}T${time}:00`).toISOString()
+}
+
+function TaskRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null; onLog: (iso?: string) => void; saving: boolean }) {
+  const [showManual, setShowManual] = useState(false)
+  const [manDate, setManDate] = useState(new Date().toISOString().slice(0, 10))
+  const [manTime, setManTime] = useState(new Date().toTimeString().slice(0, 5))
+
   const col = freshnessColor(ts, task.hours ?? 24)
   const remainingH = ts && task.hours ? Math.max(0, (task.hours ?? 0) - hoursAgo(ts)!) : null
+
   return (
-    <div style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '10px', padding: '10px 12px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>
-          <span style={{ fontSize: '15px' }}>{task.icon}</span> {task.label}
+    <div style={{ marginBottom: '6px' }}>
+      <div style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: showManual ? '10px 10px 0 0' : '10px', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>
+            <span style={{ fontSize: '15px' }}>{task.icon}</span> {task.label}
+          </div>
+          {ts ? (
+            <>
+              <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>✓ {formatTsFull(ts)}</div>
+              {task.hours && (
+                <div style={{ fontSize: '11px', color: COLOR[col].text, marginTop: '1px' }}>
+                  {remainingH! > 0 ? `⏱ nächste Kontrolle: ${nextDueTs(ts, task.hours)}` : '⚠️ Fälligkeit abgelaufen!'}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
+          )}
         </div>
-        {ts ? (
-          <>
-            <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
-              ✓ {formatTsFull(ts)}
-            </div>
-            {task.hours && (
-              <div style={{ fontSize: '11px', color: COLOR[col].text, marginTop: '1px' }}>
-                {remainingH! > 0
-                  ? `⏱ nächste Kontrolle: ${nextDueTs(ts, task.hours)}`
-                  : '⚠️ Fälligkeit abgelaufen!'}
-              </div>
-            )}
-          </>
-        ) : (
-          <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
-        )}
+        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+          <button onClick={() => onLog()} disabled={saving} style={btnStyle('#3A7A3A', '#FFF', '13px')}>Jetzt ✓</button>
+          <button onClick={() => setShowManual(s => !s)} style={btnStyle('#888', '#FFF', '13px')}>✏️</button>
+        </div>
       </div>
-      <button onClick={onLog} disabled={saving} style={btnStyle('#3A7A3A', '#FFFFFF', '13px')}>
-        Jetzt ✓
-      </button>
+      {showManual && (
+        <div style={{ background: '#F9FBF9', border: `1.5px solid ${COLOR[col].border}`, borderTop: 'none', borderRadius: '0 0 10px 10px', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" value={manDate} onChange={e => setManDate(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
+          <input type="time" value={manTime} onChange={e => setManTime(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
+          <button onClick={() => { onLog(toISO(manDate, manTime)); setShowManual(false) }} disabled={saving}
+            style={btnStyle('#3A7A3A', '#FFF', '13px')}>Speichern</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DailyRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null; onLog: (iso?: string) => void; saving: boolean }) {
+  const [showManual, setShowManual] = useState(false)
+  const [manDate, setManDate] = useState(new Date().toISOString().slice(0, 10))
+  const [manTime, setManTime] = useState(new Date().toTimeString().slice(0, 5))
+
+  const done = isToday(ts)
+  const col = done ? 'green' : 'red'
+
+  return (
+    <div style={{ marginBottom: '6px' }}>
+      <div style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: showManual ? '10px 10px 0 0' : '10px', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: '600', fontSize: '14px', color: COLOR[col].text }}>
+            <span style={{ fontSize: '15px' }}>{task.icon}</span> {task.label}
+          </div>
+          {ts ? (
+            <>
+              <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>✓ {formatTsFull(ts)}</div>
+              <div style={{ fontSize: '11px', color: COLOR[col].text, marginTop: '1px' }}>
+                {done ? '⏱ nächste Kontrolle: morgen' : '⚠️ Heute noch nicht erledigt!'}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>Noch nie eingetragen</div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+          <button onClick={() => onLog()} disabled={saving}
+            style={btnStyle(done ? '#4CAF50' : '#E53935', '#FFF', '13px')}>
+            {done ? '✓ Nochmal' : 'Erledigt'}
+          </button>
+          <button onClick={() => setShowManual(s => !s)} style={btnStyle('#888', '#FFF', '13px')}>✏️</button>
+        </div>
+      </div>
+      {showManual && (
+        <div style={{ background: '#F9FBF9', border: `1.5px solid ${COLOR[col].border}`, borderTop: 'none', borderRadius: '0 0 10px 10px', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" value={manDate} onChange={e => setManDate(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
+          <input type="time" value={manTime} onChange={e => setManTime(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
+          <button onClick={() => { onLog(toISO(manDate, manTime)); setShowManual(false) }} disabled={saving}
+            style={btnStyle('#3A7A3A', '#FFF', '13px')}>Speichern</button>
+        </div>
+      )}
     </div>
   )
 }
