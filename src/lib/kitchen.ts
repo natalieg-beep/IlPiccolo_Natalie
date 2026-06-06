@@ -23,6 +23,7 @@ export const BELAG_TASKS: TaskDef[] = [
   { key: 'sucuk',        label: 'Sucuk',              type: 'freshness', hours: 48, icon: '🥩' },
   { key: 'salami',       label: 'Ital. Salami',       type: 'freshness', hours: 48, icon: '🍕' },
   { key: 'salami_scharf',label: 'Scharfe Ital. Salami',type: 'freshness', hours: 48, icon: '🌶️' },
+  { key: 'thunfisch',    label: 'Thunfisch',          type: 'freshness', hours: 24, icon: '🐟' },
   { key: 'jambon',       label: 'Jambon',             type: 'freshness', hours: 48, icon: '🥓' },
   { key: 'pastirma',     label: 'Pastırma',           type: 'freshness', hours: 48, icon: '🥩' },
 ]
