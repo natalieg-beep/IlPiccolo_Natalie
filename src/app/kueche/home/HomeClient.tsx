@@ -147,6 +147,9 @@ export default function HomeClient() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <Link href="/kueche/einstellungen">
+            <button style={{ background: '#2D5A2D', border: 'none', color: '#FFFFFF', padding: '7px 12px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' }}>⚙️</button>
+          </Link>
           <Link href="/kueche/mdh">
             <button style={{ background: '#2D5A2D', border: 'none', color: '#FFFFFF', padding: '7px 12px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' }}>📦 MDH</button>
           </Link>

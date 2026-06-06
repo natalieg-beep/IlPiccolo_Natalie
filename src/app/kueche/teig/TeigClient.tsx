@@ -123,6 +123,11 @@ export default function TeigClient() {
     await load()
   }
 
+  async function saveEdit(b: DoughBatch, updates: Record<string, string | DoughStage>) {
+    await createClient().from('kitchen_dough_batches').update(updates).eq('id', b.id)
+    await load()
+  }
+
   async function saveManual() {
     if (!user) return
     setSaving('manual')
@@ -238,7 +243,7 @@ export default function TeigClient() {
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Keine aktiven Chargen.</p>
         )}
 
-        {active.map(b => <BatchCard key={b.id} b={b} onAdvance={() => advance(b)} onSetDraussen={(h) => setDraussen(b, h)} onDelete={() => deleteBatch(b)} saving={saving === b.id} />)}
+        {active.map(b => <BatchCard key={b.id} b={b} onAdvance={() => advance(b)} onSetDraussen={(h) => setDraussen(b, h)} onDelete={() => deleteBatch(b)} onSaveEdit={(u) => saveEdit(b, u)} saving={saving === b.id} />)}
 
         {finished.length > 0 && (
           <>
@@ -256,9 +261,36 @@ export default function TeigClient() {
   )
 }
 
-function BatchCard({ b, onAdvance, onSetDraussen, onDelete, saving, finished }: {
-  b: DoughBatch; onAdvance?: () => void; onSetDraussen?: (h: number) => void; onDelete?: () => void; saving: boolean; finished?: boolean
+function BatchCard({ b, onAdvance, onSetDraussen, onDelete, onSaveEdit, saving, finished }: {
+  b: DoughBatch
+  onAdvance?: () => void
+  onSetDraussen?: (h: number) => void
+  onDelete?: () => void
+  onSaveEdit?: (updates: Record<string, string | DoughStage>) => void
+  saving: boolean
+  finished?: boolean
 }) {
+  const [editMode, setEditMode] = useState(false)
+  const fmt = (ts: string | null) => ts ? new Date(ts).toISOString().slice(0, 16) : ''
+
+  // Edit state per stage
+  const [editTeig,       setEditTeig]       = useState(fmt(b.teig_at))
+  const [editTeiglinge,  setEditTeiglinge]  = useState(fmt(b.teiglinge_at))
+  const [editKuehl,      setEditKuehl]      = useState(fmt(b.kuehlschrank_at))
+  const [editDraussen,   setEditDraussen]   = useState(fmt(b.draussen_at))
+  const [editStage,      setEditStage]      = useState<DoughStage>(b.stage)
+
+  function saveEdit() {
+    const toISO = (v: string) => v ? new Date(v).toISOString() : ''
+    const updates: Record<string, string | DoughStage> = { stage: editStage }
+    if (editTeig)      updates.teig_at = toISO(editTeig)
+    if (editTeiglinge) updates.teiglinge_at = toISO(editTeiglinge)
+    if (editKuehl)     updates.kuehlschrank_at = toISO(editKuehl)
+    if (editDraussen)  updates.draussen_at = toISO(editDraussen)
+    onSaveEdit?.(updates)
+    setEditMode(false)
+  }
+
   const ts = stageTs(b)
   const timerH = b.stage === 'draussen' ? b.draussen_stunden : (STAGE_TIMER[b.stage] ?? 0)
   const elapsed = ts ? hoursAgo(ts)! : null
@@ -272,11 +304,11 @@ function BatchCard({ b, onAdvance, onSetDraussen, onDelete, saving, finished }: 
     : 'green'
 
   const stages: Array<{ key: DoughStage; label: string; ts: string | null }> = [
-    { key: 'teig_gemacht',      label: 'Teig gemacht',     ts: b.teig_at },
-    { key: 'teiglinge_geformt', label: 'Teiglinge geformt',ts: b.teiglinge_at },
-    { key: 'kuehlschrank',      label: 'Kühlschrank',       ts: b.kuehlschrank_at },
-    { key: 'draussen',          label: 'Draußen',           ts: b.draussen_at },
-    { key: 'fertig',            label: 'Fertig',            ts: b.fertig_at },
+    { key: 'teig_gemacht',      label: 'Teig gemacht',      ts: b.teig_at },
+    { key: 'teiglinge_geformt', label: 'Teiglinge geformt', ts: b.teiglinge_at },
+    { key: 'kuehlschrank',      label: 'Kühlschrank',        ts: b.kuehlschrank_at },
+    { key: 'draussen',          label: 'Draußen',            ts: b.draussen_at },
+    { key: 'fertig',            label: 'Fertig',             ts: b.fertig_at },
   ]
   const currentIdx = stages.findIndex(s => s.key === b.stage)
 
@@ -304,6 +336,12 @@ function BatchCard({ b, onAdvance, onSetDraussen, onDelete, saving, finished }: 
               Nächste →
             </button>
           )}
+          {!finished && (
+            <button onClick={() => setEditMode(e => !e)} style={{
+              background: editMode ? '#555' : '#FFF', border: '1px solid #999', color: editMode ? '#FFF' : '#555',
+              borderRadius: '8px', padding: '8px 10px', fontSize: '13px', cursor: 'pointer',
+            }}>✏️</button>
+          )}
           {onDelete && (
             <button onClick={onDelete} style={{
               background: 'transparent', border: '1px solid #E53935', color: '#E53935',
@@ -312,6 +350,53 @@ function BatchCard({ b, onAdvance, onSetDraussen, onDelete, saving, finished }: 
           )}
         </div>
       </div>
+
+      {/* ── Edit-Modus ───────────────────────────────────────────── */}
+      {editMode && (
+        <div style={{ background: '#FFFFFFCC', borderRadius: '10px', padding: '12px', marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '700', color: '#1B3A1B', marginBottom: '2px' }}>Zeitstempel bearbeiten:</div>
+
+          {[
+            { label: '1. Teig gemacht',      val: editTeig,      set: setEditTeig,      show: true },
+            { label: '2. Teiglinge geformt', val: editTeiglinge, set: setEditTeiglinge, show: true },
+            { label: '3. Im Kühlschrank',    val: editKuehl,     set: setEditKuehl,     show: true },
+            { label: '4. Draußen',           val: editDraussen,  set: setEditDraussen,  show: true },
+          ].map(row => (
+            <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '12px', color: '#555', width: '140px', flexShrink: 0 }}>{row.label}</div>
+              <input
+                type="datetime-local"
+                value={row.val}
+                onChange={e => row.set(e.target.value)}
+                style={{ padding: '5px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px', flex: 1 }}
+              />
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+            <div style={{ fontSize: '12px', color: '#555', width: '140px', flexShrink: 0 }}>Aktuelles Stadium:</div>
+            <select value={editStage} onChange={e => setEditStage(e.target.value as DoughStage)}
+              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }}>
+              <option value="teig_gemacht">1. Teig gemacht</option>
+              <option value="teiglinge_geformt">2. Teiglinge geformt</option>
+              <option value="kuehlschrank">3. Im Kühlschrank</option>
+              <option value="draussen">4. Draußen</option>
+              <option value="fertig">5. Fertig</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            <button onClick={() => setEditMode(false)} style={{
+              flex: 1, background: '#F5F5F5', border: '1px solid #DDD', borderRadius: '8px',
+              padding: '10px', fontSize: '13px', cursor: 'pointer', color: '#555',
+            }}>Abbrechen</button>
+            <button onClick={saveEdit} style={{
+              flex: 2, background: '#3A7A3A', border: 'none', borderRadius: '8px',
+              padding: '10px', fontSize: '13px', fontWeight: '700', color: '#FFF', cursor: 'pointer',
+            }}>Speichern</button>
+          </div>
+        </div>
+      )}
 
       {/* Draußen Stunden-Auswahl (nur wenn Kühlschrank-Stage aktiv) */}
       {b.stage === 'kuehlschrank' && onSetDraussen && (
