@@ -4,22 +4,23 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
-  const email = 'natalie.guenes.tr@gmail.com'
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
     const { error } = await createClient().auth.signInWithPassword({ email, password })
-    if (error) { setError(error.message); setLoading(false) }
+    if (error) { setError('E-Mail oder Passwort falsch.'); setLoading(false) }
     else window.location.href = '/service'
   }
 
   async function handleMagicLink() {
+    if (!email) { setError('Bitte zuerst E-Mail eingeben.'); return }
     setLoading(true)
     setError('')
     const { error } = await createClient().auth.signInWithOtp({ email })
@@ -44,11 +45,15 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <input
+              type="email" placeholder="E-Mail" value={email} onChange={e => setEmail(e.target.value)}
+              style={{ background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '10px', padding: '14px 16px', color: '#1A1207', fontSize: '16px', outline: 'none', width: '100%', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+            />
+            <input
               type="password" placeholder="Passwort" value={password} onChange={e => setPassword(e.target.value)}
               style={{ background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '10px', padding: '14px 16px', color: '#1A1207', fontSize: '16px', outline: 'none', width: '100%', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
             />
             {error && <p style={{ color: '#C62828', fontSize: '13px' }}>{error}</p>}
-            <button type="submit" disabled={loading || !password} style={{ background: '#B8882A', color: '#FFFFFF', border: 'none', borderRadius: '10px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', opacity: loading || !password ? 0.6 : 1 }}>
+            <button type="submit" disabled={loading || !password || !email} style={{ background: '#B8882A', color: '#FFFFFF', border: 'none', borderRadius: '10px', padding: '14px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', opacity: loading || !password ? 0.6 : 1 }}>
               {loading ? 'Lädt…' : 'Einloggen'}
             </button>
             <button type="button" onClick={handleMagicLink} disabled={loading} style={{ background: '#FFFFFF', color: '#8A7A60', border: '1px solid #E5E0D8', borderRadius: '10px', padding: '12px', fontSize: '14px', cursor: 'pointer' }}>
