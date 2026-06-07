@@ -40,7 +40,9 @@ function inWindow(elapsedH: number, targetH: number): boolean {
   return elapsedH >= targetH && elapsedH < targetH + WINDOW_H
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  const url = new URL(req.url)
+  const isTest = url.searchParams.get('test') === 'true'
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -52,6 +54,14 @@ Deno.serve(async () => {
     Deno.env.get('TELEGRAM_CHAT_RAKIM')   ?? '',
     Deno.env.get('TELEGRAM_CHAT_NATALIE') ?? '',
   ]
+
+  // Test-Modus: ?test=true → sofort Testnachricht an alle
+  if (isTest) {
+    await broadcast(token, chats, '🍕 <b>Il Piccolo Küche</b>\n✅ Telegram-Test erfolgreich! Benachrichtigungen funktionieren.')
+    return new Response(JSON.stringify({ test: true, sent_to: chats.filter(Boolean).length }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
 
   const now = Date.now()
   const notified: string[] = []

@@ -340,6 +340,7 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
   const [editMode, setEditMode] = useState(false)
   const [eTeig,   setETeig]   = useState(toLocalInputValue(b.teig_at))
   const [eTeigl,  setETeigl]  = useState(toLocalInputValue(b.teiglinge_at))
+  const [eKuehl,  setEKuehl]  = useState(toLocalInputValue(b.kuehlschrank_at))
   const [eDraus,  setEDraus]  = useState(toLocalInputValue(b.draussen_at))
   const [eStage,  setEStage]  = useState<DoughStage>(b.stage)
   const [eKg,     setEKg]     = useState(b.kg_teig ? String(b.kg_teig) : '')
@@ -348,9 +349,10 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
   function saveEdit() {
     onSaveEdit?.({
       stage: eStage,
-      teig_at:       eTeig  ? localInputToISO(eTeig)  : null,
-      teiglinge_at:  eTeigl ? localInputToISO(eTeigl) : null,
-      draussen_at:   eDraus ? localInputToISO(eDraus) : null,
+      teig_at:          eTeig  ? localInputToISO(eTeig)  : null,
+      teiglinge_at:     eTeigl ? localInputToISO(eTeigl) : null,
+      kuehlschrank_at:  eKuehl ? localInputToISO(eKuehl) : null,
+      draussen_at:      eDraus ? localInputToISO(eDraus) : null,
       kg_teig:       eKg  ? parseFloat(eKg)  : null,
       anzahl_teiglinge: eAnz ? parseInt(eAnz) : null,
     })
@@ -496,7 +498,8 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
           {[
             { label: '1. Teig gemacht',      val: eTeig,  set: setETeig },
             { label: '2. Teiglinge geformt', val: eTeigl, set: setETeigl },
-            { label: '3. Rausgeholt',        val: eDraus, set: setEDraus },
+            { label: '3. Im Kühlschrank',    val: eKuehl, set: setEKuehl },
+            { label: '4. Rausgeholt',        val: eDraus, set: setEDraus },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '12px', color: '#555', minWidth: '130px' }}>{row.label}</div>

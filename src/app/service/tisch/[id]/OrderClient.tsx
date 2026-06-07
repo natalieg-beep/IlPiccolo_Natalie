@@ -46,13 +46,17 @@ export default function OrderClient({ table, existingOrder, backHref }: {
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [items, setItems] = useState<Record<string, number>>(() => {
     const m: Record<string, number> = {}
-    existingOrder?.order_items.forEach(i => { m[i.name] = i.qty })
+    // Merge rows with same name (can happen when partially gratis → saved as 2 rows)
+    existingOrder?.order_items.forEach(i => { m[i.name] = (m[i.name] ?? 0) + i.qty })
     return m
   })
-  const [onTheHouse, setOnTheHouse] = useState<Set<string>>(() => {
-    const s = new Set<string>()
-    existingOrder?.order_items.filter(i => i.on_the_house).forEach(i => s.add(i.name))
-    return s
+  // onTheHouse: how many units of each item are gratis (not a boolean flag anymore)
+  const [onTheHouse, setOnTheHouse] = useState<Record<string, number>>(() => {
+    const m: Record<string, number> = {}
+    existingOrder?.order_items.filter(i => i.on_the_house).forEach(i => {
+      m[i.name] = (m[i.name] ?? 0) + i.qty
+    })
+    return m
   })
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
@@ -137,8 +141,10 @@ export default function OrderClient({ table, existingOrder, backHref }: {
   // ── Berechnungen ─────────────────────────────────────────────────
   const totalCount     = Object.values(items).reduce((a, b) => a + b, 0)
   const grossPrice     = Object.entries(items).reduce((s, [n, q]) => s + getPrice(n) * q, 0)
-  const houseTotal     = Object.entries(items).reduce((s, [n, q]) =>
-    onTheHouse.has(n) ? s + getPrice(n) * q : s, 0)
+  const houseTotal     = Object.entries(items).reduce((s, [n, q]) => {
+    const hq = Math.min(onTheHouse[n] ?? 0, q)
+    return s + getPrice(n) * hq
+  }, 0)
   const chargeableBase = grossPrice - houseTotal
 
   const isPrivat = table.location === 'privat'
@@ -150,11 +156,12 @@ export default function OrderClient({ table, existingOrder, backHref }: {
   const displayTotal = isGratis ? 0 : discountedPrice
 
   // ── Hilfsfunktionen ──────────────────────────────────────────────
-  function toggleOnTheHouse(name: string) {
+  function changeHouseQty(name: string, delta: number) {
     setOnTheHouse(prev => {
-      const next = new Set(prev)
-      next.has(name) ? next.delete(name) : next.add(name)
-      return next
+      const maxQty = items[name] ?? 0
+      const next = Math.max(0, Math.min(maxQty, (prev[name] ?? 0) + delta))
+      if (next === 0) { const m = { ...prev }; delete m[name]; return m }
+      return { ...prev, [name]: next }
     })
   }
 
@@ -163,9 +170,15 @@ export default function OrderClient({ table, existingOrder, backHref }: {
       const val = Math.max(0, (prev[name] ?? 0) + delta)
       if (val === 0) {
         const n = { ...prev }; delete n[name]
-        setOnTheHouse(s => { const ns = new Set(s); ns.delete(name); return ns })
+        setOnTheHouse(s => { const ns = { ...s }; delete ns[name]; return ns })
         return n
       }
+      // Cap house qty if total qty decreases below it
+      setOnTheHouse(s => {
+        const hq = s[name] ?? 0
+        if (hq > val) return { ...s, [name]: val }
+        return s
+      })
       return { ...prev, [name]: val }
     })
   }
@@ -201,13 +214,14 @@ export default function OrderClient({ table, existingOrder, backHref }: {
     }
 
     await supabase.from('order_items').delete().eq('order_id', orderId)
-    await supabase.from('order_items').insert(
-      entries.map(([name, qty]) => ({
-        order_id: orderId, name, qty,
-        unit_price: getPrice(name),
-        on_the_house: onTheHouse.has(name),
-      }))
-    )
+    const saveRows: { order_id: string; name: string; qty: number; unit_price: number; on_the_house: boolean }[] = []
+    entries.forEach(([name, qty]) => {
+      const houseQty   = Math.min(onTheHouse[name] ?? 0, qty)
+      const chargedQty = qty - houseQty
+      if (houseQty   > 0) saveRows.push({ order_id: orderId!, name, qty: houseQty,   unit_price: getPrice(name), on_the_house: true  })
+      if (chargedQty > 0) saveRows.push({ order_id: orderId!, name, qty: chargedQty, unit_price: getPrice(name), on_the_house: false })
+    })
+    await supabase.from('order_items').insert(saveRows)
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -373,33 +387,71 @@ export default function OrderClient({ table, existingOrder, backHref }: {
             {/* Artikel-Liste */}
             <div style={{ background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px', overflow: 'hidden' }}>
               {Object.entries(items).map(([name, qty], i, arr) => {
-                const price   = getPrice(name) * qty
-                const isHouse = onTheHouse.has(name)
+                const houseQty   = Math.min(onTheHouse[name] ?? 0, qty)
+                const chargedQty = qty - houseQty
+                const isAllHouse = houseQty >= qty
+                const isPartial  = houseQty > 0 && !isAllHouse
+                const chargedPrice = getPrice(name) * chargedQty
+                const housePrice   = getPrice(name) * houseQty
                 return (
                   <div key={name} style={{
                     display: 'flex', alignItems: 'center', padding: '9px 12px',
                     borderBottom: i < arr.length - 1 ? '1px solid #F0EDE8' : 'none',
-                    background: isHouse ? '#F0FAF0' : undefined,
+                    background: isAllHouse ? '#F0FAF0' : isPartial ? '#F7FCF7' : undefined,
                   }}>
                     <span style={{ flex: 1, fontSize: '14px', color: '#1A1207' }}>
                       {name} <span style={{ color: '#8A7A60' }}>×{qty}</span>
                     </span>
                     {!isGratis && (
-                      <button onClick={() => toggleOnTheHouse(name)} title="Aufs Haus" style={{
-                        background: isHouse ? '#2E7D32' : '#F5F2EC',
-                        border: `1px solid ${isHouse ? '#2E7D32' : '#E5E0D8'}`,
-                        borderRadius: '6px', padding: '3px 8px', fontSize: '13px',
-                        cursor: 'pointer', marginRight: '8px', lineHeight: 1,
-                      }}>🎁</button>
+                      qty === 1 ? (
+                        // Einfacher Toggle für Einzelartikel
+                        <button onClick={() => changeHouseQty(name, houseQty > 0 ? -1 : 1)} title="Aufs Haus" style={{
+                          background: houseQty > 0 ? '#2E7D32' : '#F5F2EC',
+                          border: `1px solid ${houseQty > 0 ? '#2E7D32' : '#E5E0D8'}`,
+                          borderRadius: '6px', padding: '3px 8px', fontSize: '13px',
+                          cursor: 'pointer', marginRight: '8px', lineHeight: 1,
+                        }}>🎁</button>
+                      ) : (
+                        // Stepper für mehrere Einheiten
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginRight: '8px' }}>
+                          <button onClick={() => changeHouseQty(name, -1)} disabled={houseQty === 0} style={{
+                            background: '#F5F2EC', border: '1px solid #E5E0D8', borderRadius: '5px',
+                            width: '22px', height: '22px', fontSize: '14px', cursor: houseQty === 0 ? 'default' : 'pointer',
+                            color: houseQty === 0 ? '#C0B8B0' : '#5A5040', lineHeight: 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>−</button>
+                          <span style={{
+                            fontSize: '11px', minWidth: '30px', textAlign: 'center',
+                            color: houseQty > 0 ? '#2E7D32' : '#8A7A60', fontWeight: '600',
+                          }}>🎁{houseQty > 0 ? houseQty : ''}</span>
+                          <button onClick={() => changeHouseQty(name, 1)} disabled={houseQty >= qty} style={{
+                            background: '#F5F2EC', border: '1px solid #E5E0D8', borderRadius: '5px',
+                            width: '22px', height: '22px', fontSize: '14px', cursor: houseQty >= qty ? 'default' : 'pointer',
+                            color: houseQty >= qty ? '#C0B8B0' : '#5A5040', lineHeight: 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>+</button>
+                        </div>
+                      )
                     )}
-                    <span style={{
-                      fontSize: (isHouse || isGratis) ? '12px' : '14px',
-                      fontWeight: '600',
-                      color: (isHouse || isGratis) ? '#2E7D32' : '#B8882A',
-                      textDecoration: (isHouse || isGratis) ? 'line-through' : 'none',
-                    }}>
-                      {price} ₺{(isHouse || isGratis) ? ' gratis' : ''}
-                    </span>
+                    {/* Preis-Anzeige */}
+                    {isGratis ? (
+                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#2E7D32', textDecoration: 'line-through' }}>
+                        {getPrice(name) * qty} ₺ gratis
+                      </span>
+                    ) : isAllHouse ? (
+                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#2E7D32', textDecoration: 'line-through' }}>
+                        {housePrice} ₺ gratis
+                      </span>
+                    ) : isPartial ? (
+                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#B8882A' }}>
+                        {chargedPrice} ₺
+                        <span style={{ color: '#2E7D32', marginLeft: '4px', textDecoration: 'line-through', fontSize: '11px' }}>+{housePrice} ₺</span>
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#B8882A' }}>
+                        {getPrice(name) * qty} ₺
+                      </span>
+                    )}
                   </div>
                 )
               })}

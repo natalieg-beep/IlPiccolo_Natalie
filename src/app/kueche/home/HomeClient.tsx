@@ -190,15 +190,15 @@ export default function HomeClient() {
             return (
               <div key={b.id} style={{ background: COLOR[col].bg, border: `1.5px solid ${COLOR[col].border}`, borderRadius: '12px', padding: '12px 14px', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontWeight: '700', fontSize: '15px', color: COLOR[col].text }}>{STAGE_LABELS[b.stage]}</div>
+                  <Link href="/kueche/teig" style={{ textDecoration: 'none' }}>
+                    <div style={{ fontWeight: '700', fontSize: '15px', color: COLOR[col].text }}>{STAGE_LABELS[b.stage]} ›</div>
                     <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>seit: {formatTs(ts)}</div>
                     {remaining !== null && b.stage !== 'fertig' && (
                       <div style={{ fontSize: '12px', color: COLOR[col].text, marginTop: '2px' }}>
                         {remaining < 0.1 ? '⏰ Fällig!' : `⏱ noch ~${Math.ceil(remaining)} Std`}
                       </div>
                     )}
-                  </div>
+                  </Link>
                   {b.stage !== 'fertig' && (
                     <button
                       onClick={() => advanceDough(b)}
