@@ -215,11 +215,20 @@ export default function TeigClient() {
     await load(); setSaving(null)
   }
 
-  async function boxFinished(boxId: string) {
+  async function boxFinished(boxId: string, batchId: string) {
     setSaving('box-done-' + boxId)
-    await createClient().from('kitchen_dough_boxes')
+    const db = createClient()
+    await db.from('kitchen_dough_boxes')
       .update({ status: 'fertig', fertig_at: new Date().toISOString() })
       .eq('id', boxId)
+    // Wenn alle Boxen dieser Charge fertig → Charge automatisch abschließen
+    const { data: remaining } = await db.from('kitchen_dough_boxes')
+      .select('id').eq('batch_id', batchId).neq('status', 'fertig')
+    if (remaining && remaining.length === 0) {
+      await db.from('kitchen_dough_batches')
+        .update({ stage: 'fertig', fertig_at: new Date().toISOString() })
+        .eq('id', batchId)
+    }
     await load(); setSaving(null)
   }
 
@@ -353,7 +362,7 @@ export default function TeigClient() {
               onAssignBox={(n) => assignBox(b.id, n)}
               onRemoveBox={removeBox}
               onTakeOutBox={takeOutBox}
-              onBoxFinished={boxFinished}
+              onBoxFinished={(id) => boxFinished(id, b.id)}
               onBoxBack={boxBack}
               saving={saving}
             />
@@ -439,10 +448,9 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
     : remaining !== null && remaining < timerH * 0.25 ? 'yellow'
     : 'green'
 
-  const nextLabel = b.stage === 'teig_gemacht' ? 'Teiglinge geformt →'
-    : (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank') ? 'Alle rausnehmen →'
-    : b.stage === 'draussen' ? '✅ Alle verarbeitet'
-    : ''
+  // Batch-Button nur noch für Schritt 1 (Teiglinge formen)
+  // Schritt 3+4 laufen komplett über Boxen
+  const nextLabel = b.stage === 'teig_gemacht' ? 'Teiglinge geformt →' : ''
 
   const showBoxes = !finished && (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank' || b.stage === 'draussen')
 
@@ -457,7 +465,12 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
             seit: {fmtTs(ts)}
             {remaining !== null && !finished && (
               <span style={{ color: COLOR[col].text, fontWeight: '700', marginLeft: '8px' }}>
-                {overdue ? '⏰ FÄLLIG!' : `⏱ noch ~${Math.ceil(remaining)}h`}
+                {(b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank')
+                  ? (overdue
+                      ? (elapsed !== null && elapsed > 72 ? '⚠️ Max. 72h überschritten!' : '✅ Mind. 24h erreicht — bereit')
+                      : `⏱ noch ~${Math.ceil(remaining)}h bis mind. 24h`)
+                  : (overdue ? '⏰ FÄLLIG!' : `⏱ noch ~${Math.ceil(remaining)}h`)
+                }
               </span>
             )}
           </div>
@@ -497,40 +510,16 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
         </div>
       )}
 
-      {/* Aktions-Buttons (Gesamt-Batch) */}
-      {!finished && !editMode && (
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-          {nextLabel && (
-            <button onClick={onAdvance} disabled={!!saving} style={{
-              flex: 2, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
-              padding: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1,
-            }}>{nextLabel}</button>
-          )}
-          {b.stage === 'draussen' && onBack && (
-            <button onClick={onBack} disabled={!!saving} style={{
-              flex: 1, background: '#FFF', color: '#1565C0', border: '1.5px solid #1565C0',
-              borderRadius: '8px', padding: '10px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-            }}>🔄 Alle zurück</button>
-          )}
+      {/* Schritt 1: Teiglinge formen Button */}
+      {!finished && !editMode && nextLabel && (
+        <div style={{ marginBottom: '10px' }}>
+          <button onClick={onAdvance} disabled={!!saving} style={{
+            width: '100%', background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
+            padding: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1,
+          }}>{nextLabel}</button>
         </div>
       )}
 
-      {/* Raumtemp-Zeit (draussen, gesamt) */}
-      {b.stage === 'draussen' && !editMode && onSetDraussen && (
-        <div style={{ background: '#FFFFFF88', borderRadius: '8px', padding: '8px', marginBottom: '10px' }}>
-          <div style={{ fontSize: '11px', color: '#555', marginBottom: '5px' }}>Raumtemperatur-Zeit (Batch):</div>
-          <div style={{ display: 'flex', gap: '5px' }}>
-            {[1, 2, 3, 4].map(h => (
-              <button key={h} onClick={() => onSetDraussen(h)} style={{
-                padding: '5px 10px', borderRadius: '6px', border: '1px solid #999',
-                background: b.draussen_stunden === h ? '#3A7A3A' : '#FFF',
-                color: b.draussen_stunden === h ? '#FFF' : '#333',
-                cursor: 'pointer', fontSize: '13px', fontWeight: '600',
-              }}>{h}h</button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Boxen-Panel */}
       {showBoxes && !editMode && (
