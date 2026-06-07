@@ -518,19 +518,6 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
         }}>Teiglinge geformt →</button>
       )}
 
-      {/* Schritt 2, 3, 4 — immer sichtbar ab Stage teiglinge_geformt */}
-      {!finished && (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank' || b.stage === 'draussen') && (
-        <BoxPanel
-          boxes={boxes}
-          occupiedByOthers={occupiedBoxNumbers}
-          saving={saving}
-          onAssign={onAssignBox}
-          onRemove={onRemoveBox}
-          onTakeOut={onTakeOutBox}
-          onFinished={onBoxFinished}
-          onBack={onBoxBack}
-        />
-      )}
 
       {/* Timeline */}
       {!editMode && (
@@ -600,6 +587,20 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
             }}>Speichern</button>
           </div>
         </div>
+      )}
+
+      {/* Boxen-Prozess im Edit-Modus — Schritte 2, 3, 4 */}
+      {editMode && !finished && (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank' || b.stage === 'draussen') && (
+        <BoxPanel
+          boxes={boxes}
+          occupiedByOthers={occupiedBoxNumbers}
+          saving={saving}
+          onAssign={onAssignBox}
+          onRemove={onRemoveBox}
+          onTakeOut={onTakeOutBox}
+          onFinished={onBoxFinished}
+          onBack={onBoxBack}
+        />
       )}
     </div>
   )
