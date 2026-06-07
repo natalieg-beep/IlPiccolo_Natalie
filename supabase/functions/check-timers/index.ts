@@ -5,8 +5,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// Fenster: Benachrichtigung gilt als "in dieser Periode" wenn elapsed im 30-Min-Fenster liegt
-const WINDOW_H = 0.5
+// Fenster: 60 Min damit bei Cron-Jitter (±5 Min) keine Benachrichtigung verpasst wird
+const WINDOW_H = 1.0
 
 const DOUGH_STAGE_LABELS: Record<string, string> = {
   teig_gemacht:       '➡️ Jetzt Teiglinge formen!',

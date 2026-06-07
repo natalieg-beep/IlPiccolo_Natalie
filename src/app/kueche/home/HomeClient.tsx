@@ -26,33 +26,34 @@ interface TaskLog {
   logged_at: string
 }
 
+// kuehlschrank = legacy alias für teiglinge_geformt (Teiglinge im Kühlschrank)
 const STAGE_LABELS: Record<DoughStage, string> = {
-  teig_gemacht: 'Teig gemacht',
-  teiglinge_geformt: 'Teiglinge geformt',
-  kuehlschrank: 'Im Kühlschrank',
-  draussen: 'Draußen (akkl.)',
-  fertig: 'Fertig! ✅',
+  teig_gemacht:      '1. Teig gemacht — im Kühlschrank',
+  teiglinge_geformt: '2. Teiglinge — im Kühlschrank',
+  kuehlschrank:      '2. Teiglinge — im Kühlschrank',
+  draussen:          '3. Akklimatisierung (Raumtemp.)',
+  fertig:            'Fertig! ✅',
 }
 
 const STAGE_TIMER_HOURS: Partial<Record<DoughStage, number>> = {
-  teig_gemacht: 24,
+  teig_gemacht:      24,
   teiglinge_geformt: 24,
-  kuehlschrank: 24,
+  kuehlschrank:      24,
 }
 
 function stageTimestamp(b: DoughBatch): string | null {
-  if (b.stage === 'teig_gemacht') return b.teig_at
+  if (b.stage === 'teig_gemacht')      return b.teig_at
   if (b.stage === 'teiglinge_geformt') return b.teiglinge_at
-  if (b.stage === 'kuehlschrank') return b.kuehlschrank_at
-  if (b.stage === 'draussen') return b.draussen_at
+  if (b.stage === 'kuehlschrank')      return b.kuehlschrank_at ?? b.teiglinge_at
+  if (b.stage === 'draussen')          return b.draussen_at
   return b.fertig_at
 }
 
 function stageNextLabel(stage: DoughStage): string {
-  if (stage === 'teig_gemacht') return 'Teiglinge formen →'
-  if (stage === 'teiglinge_geformt') return 'In Kühlschrank →'
-  if (stage === 'kuehlschrank') return 'Raus aus Kühlschrank →'
-  if (stage === 'draussen') return 'Fertig markieren →'
+  if (stage === 'teig_gemacht')      return 'Teiglinge formen →'
+  if (stage === 'teiglinge_geformt') return 'Rausnehmen →'
+  if (stage === 'kuehlschrank')      return 'Rausnehmen →'
+  if (stage === 'draussen')          return 'Verarbeitet ✅'
   return ''
 }
 
@@ -114,10 +115,9 @@ export default function HomeClient() {
     const now = new Date().toISOString()
     const updates: Record<string, string | DoughStage> = {}
 
-    if (batch.stage === 'teig_gemacht')      { updates.stage = 'teiglinge_geformt'; updates.teiglinge_at = now }
-    else if (batch.stage === 'teiglinge_geformt') { updates.stage = 'kuehlschrank'; updates.kuehlschrank_at = now }
-    else if (batch.stage === 'kuehlschrank') { updates.stage = 'draussen'; updates.draussen_at = now }
-    else if (batch.stage === 'draussen')     { updates.stage = 'fertig'; updates.fertig_at = now }
+    if (batch.stage === 'teig_gemacht')                              { updates.stage = 'teiglinge_geformt'; updates.teiglinge_at = now }
+    else if (batch.stage === 'teiglinge_geformt' || batch.stage === 'kuehlschrank') { updates.stage = 'draussen'; updates.draussen_at = now }
+    else if (batch.stage === 'draussen')                             { updates.stage = 'fertig'; updates.fertig_at = now }
 
     await db.from('kitchen_dough_batches').update(updates).eq('id', batch.id)
     await load()
@@ -209,10 +209,10 @@ export default function HomeClient() {
                     </button>
                   )}
                 </div>
-                {/* Draußen: Stunden anpassen */}
-                {b.stage === 'kuehlschrank' && (
+                {/* Akklimatisierung: Stunden wählbar wenn draußen */}
+                {b.stage === 'draussen' && (
                   <div style={{ marginTop: '8px', fontSize: '12px', color: '#555' }}>
-                    Akkl. Stunden (nach Kühlschrank):{' '}
+                    Akkl. Zeit:{' '}
                     {[1,2,3,4].map(h => (
                       <button key={h} onClick={async () => {
                         await createClient().from('kitchen_dough_batches').update({ draussen_stunden: h }).eq('id', b.id)

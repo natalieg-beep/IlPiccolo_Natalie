@@ -44,8 +44,9 @@ export const DAILY_TASKS: TaskDef[] = [
 ]
 
 export const LOG_TASKS: TaskDef[] = [
-  { key: 'gas',        label: 'Gasflaschen Wechsel', type: 'logonly', icon: '🔥' },
-  { key: 'klimawasser',label: 'Klimawasser',         type: 'logonly', icon: '❄️' },
+  { key: 'gas_1',      label: 'Gasflasche 1 Wechsel', type: 'logonly', icon: '🔥' },
+  { key: 'gas_2',      label: 'Gasflasche 2 Wechsel', type: 'logonly', icon: '🔥' },
+  { key: 'klimawasser',label: 'Klimawasser',           type: 'logonly', icon: '❄️' },
 ]
 
 // ── Dough-Stages ──────────────────────────────────────────────────────────────
