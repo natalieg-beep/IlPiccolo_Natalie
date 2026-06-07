@@ -621,9 +621,11 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
 }
 
 // ── BoxPanel ──────────────────────────────────────────────────────────────────
+// Schritt 2: Boxen zuweisen (Grid antippbar)
+// Schritt 3: Zugewiesene Boxen einzeln rausnehmen → draußen
+// Schritt 4: Draußen-Boxen → Verarbeitet ODER Zurück in Kühlschrank
 
-function BoxPanel({ batchId, boxes, occupiedByOthers, saving, onAssign, onRemove, onTakeOut, onFinished, onBack }: {
-  batchId: string
+function BoxPanel({ boxes, occupiedByOthers, saving, onAssign, onRemove, onTakeOut, onFinished, onBack }: {
   boxes: DoughBox[]
   occupiedByOthers: number[]
   saving: string | null
@@ -633,99 +635,86 @@ function BoxPanel({ batchId, boxes, occupiedByOthers, saving, onAssign, onRemove
   onFinished?: (id: string) => void
   onBack?: (id: string) => void
 }) {
-  const assignedNums = new Set(boxes.map(bx => bx.box_number))
   const ALL_BOXES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  const assignedNums = new Set(boxes.map(bx => bx.box_number))
 
-  function boxColor(n: number): { bg: string; border: string; text: string; label: string } {
+  const inFridge  = boxes.filter(bx => bx.status === 'kuehlschrank')
+  const draussen  = boxes.filter(bx => bx.status === 'draussen')
+  const fertig    = boxes.filter(bx => bx.status === 'fertig')
+
+  function gridStyle(n: number): React.CSSProperties {
     const bx = boxes.find(b => b.box_number === n)
-    if (bx) {
-      if (bx.status === 'fertig')      return { bg: '#E8F5E9', border: '#81C784', text: '#2E7D32', label: '✅' }
-      if (bx.status === 'draussen')    return { bg: '#FFF8E1', border: '#FFB300', text: '#E65100', label: '🌡️' }
-      return { bg: '#E3F2FD', border: '#42A5F5', text: '#1565C0', label: '📦' }
-    }
-    if (occupiedByOthers.includes(n)) return { bg: '#F5F5F5', border: '#BDBDBD', text: '#9E9E9E', label: '🔒' }
-    return { bg: '#FAFAFA', border: '#E0E0E0', text: '#555', label: '' }
+    if (bx?.status === 'fertig')   return { background: '#E8F5E9', border: '2px solid #81C784', color: '#2E7D32' }
+    if (bx?.status === 'draussen') return { background: '#FFF3E0', border: '2px solid #FFB300', color: '#E65100' }
+    if (bx?.status === 'kuehlschrank') return { background: '#E3F2FD', border: '2px solid #42A5F5', color: '#1565C0' }
+    if (occupiedByOthers.includes(n))  return { background: '#F5F5F5', border: '2px solid #BDBDBD', color: '#BDBDBD' }
+    return { background: '#FAFAFA', border: '2px dashed #CCC', color: '#AAA' }
   }
 
-  const draussen = boxes.filter(bx => bx.status === 'draussen')
-  const inFridge = boxes.filter(bx => bx.status === 'kuehlschrank')
+  function gridIcon(n: number): string {
+    const bx = boxes.find(b => b.box_number === n)
+    if (bx?.status === 'fertig')       return '✅'
+    if (bx?.status === 'draussen')     return '🌡️'
+    if (bx?.status === 'kuehlschrank') return '📦'
+    if (occupiedByOthers.includes(n))  return '🔒'
+    return '+'
+  }
 
   return (
     <div style={{ background: '#FFFFFF99', borderRadius: '10px', padding: '10px', marginBottom: '8px' }}>
-      <div style={{ fontSize: '12px', fontWeight: '700', color: '#1B3A1B', marginBottom: '8px' }}>📦 Boxen</div>
+      <div style={{ fontSize: '12px', fontWeight: '700', color: '#1B3A1B', marginBottom: '6px' }}>
+        📦 Boxen dieser Charge
+      </div>
 
-      {/* Box-Grid 1–10 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '5px', marginBottom: '10px' }}>
+      {/* Grid 1–10: nur zum Zuweisen/Entfernen */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '5px', marginBottom: '8px' }}>
         {ALL_BOXES.map(n => {
-          const c = boxColor(n)
           const bx = boxes.find(b => b.box_number === n)
-          const isSaving = saving === 'box-' + n || saving === 'box-rm-' + bx?.id
           const isOccupied = occupiedByOthers.includes(n)
+          const isSaving = saving === 'box-' + n
           const isAssigned = assignedNums.has(n)
+          const canRemove = bx?.status === 'kuehlschrank'
           return (
             <button key={n}
-              disabled={isSaving || isOccupied}
+              disabled={isSaving || isOccupied || (isAssigned && !canRemove)}
               onClick={() => {
-                if (isAssigned && bx && bx.status === 'kuehlschrank') onRemove?.(bx.id)
-                else if (!isAssigned && !isOccupied) onAssign?.(n)
+                if (!isAssigned && !isOccupied) onAssign?.(n)
+                else if (isAssigned && canRemove) onRemove?.(bx!.id)
               }}
               style={{
-                background: c.bg, border: `2px solid ${c.border}`, borderRadius: '8px',
-                padding: '6px 2px', fontSize: '11px', fontWeight: '700', color: c.text,
-                cursor: isOccupied ? 'not-allowed' : 'pointer',
+                ...gridStyle(n),
+                borderRadius: '8px', padding: '6px 2px',
+                fontSize: '11px', fontWeight: '700',
+                cursor: (isOccupied || (isAssigned && !canRemove)) ? 'default' : 'pointer',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px',
                 opacity: isSaving ? 0.5 : 1,
               }}
             >
-              <span style={{ fontSize: '14px' }}>{c.label || '+'}</span>
+              <span style={{ fontSize: '13px' }}>{gridIcon(n)}</span>
               <span>Box {n}</span>
             </button>
           )
         })}
       </div>
-
-      <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        <span>📦 Im Kühlschrank</span>
-        <span>🌡️ Draußen</span>
-        <span>✅ Verarbeitet</span>
-        <span>🔒 Andere Charge</span>
-        <span style={{ color: '#3A7A3A' }}>+ Antippen zum Zuweisen / Entfernen</span>
+      <div style={{ fontSize: '9px', color: '#999', marginBottom: '10px' }}>
+        Freie Box antippen = zuweisen · 📦 Kühlschrank antippen = entfernen · 🌡️/✅ nicht antippbar
       </div>
 
-      {/* Draußen-Boxen: Aktionen */}
-      {draussen.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '6px' }}>
-          <div style={{ fontSize: '11px', fontWeight: '700', color: '#E65100' }}>🌡️ Gerade draußen:</div>
-          {draussen.map(bx => (
-            <div key={bx.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#FFF8E1', borderRadius: '8px', padding: '7px 10px' }}>
-              <span style={{ fontWeight: '700', fontSize: '13px', flex: 1, color: '#E65100' }}>
-                Box {bx.box_number}
-                {bx.draussen_at && <span style={{ fontSize: '10px', color: '#888', fontWeight: '400', marginLeft: '6px' }}>
-                  seit {Math.round(hoursAgo(bx.draussen_at) * 10) / 10}h
-                </span>}
-              </span>
-              <button onClick={() => onFinished?.(bx.id)} disabled={!!saving}
-                style={{ background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '6px', padding: '5px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-                ✅ Verarbeitet
-              </button>
-              <button onClick={() => onBack?.(bx.id)} disabled={!!saving}
-                style={{ background: '#FFF', color: '#1565C0', border: '1.5px solid #1565C0', borderRadius: '6px', padding: '5px 8px', fontSize: '11px', cursor: 'pointer' }}>
-                🔄 Zurück
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Kühlschrank-Boxen: Rausnehmen */}
+      {/* Schritt 3: Im Kühlschrank → Rausnehmen */}
       {inFridge.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ fontSize: '11px', fontWeight: '700', color: '#1565C0' }}>📦 Im Kühlschrank:</div>
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: '700', color: '#1565C0', marginBottom: '4px' }}>
+            Schritt 3 — Rausnehmen:
+          </div>
           {inFridge.map(bx => (
-            <div key={bx.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#E3F2FD', borderRadius: '8px', padding: '7px 10px' }}>
-              <span style={{ fontWeight: '700', fontSize: '13px', flex: 1, color: '#1565C0' }}>Box {bx.box_number}</span>
+            <div key={bx.id} style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              background: '#E3F2FD', borderRadius: '8px', padding: '8px 10px', marginBottom: '4px',
+            }}>
+              <span style={{ fontWeight: '700', fontSize: '14px', color: '#1565C0', flex: 1 }}>📦 Box {bx.box_number}</span>
               <button onClick={() => onTakeOut?.(bx.id)} disabled={!!saving}
-                style={{ background: '#FF8F00', color: '#FFF', border: 'none', borderRadius: '6px', padding: '5px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
+                style={{ background: '#FF8F00', color: '#FFF', border: 'none', borderRadius: '7px',
+                  padding: '7px 12px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
                 🌡️ Rausnehmen
               </button>
             </div>
@@ -733,9 +722,51 @@ function BoxPanel({ batchId, boxes, occupiedByOthers, saving, onAssign, onRemove
         </div>
       )}
 
+      {/* Schritt 4: Draußen → Verarbeitet ODER Zurück */}
+      {draussen.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: '700', color: '#E65100', marginBottom: '4px' }}>
+            Schritt 4 — Draußen (akklimatisiert):
+          </div>
+          {draussen.map(bx => (
+            <div key={bx.id} style={{
+              background: '#FFF3E0', borderRadius: '8px', padding: '8px 10px', marginBottom: '4px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px' }}>
+                <span style={{ fontWeight: '700', fontSize: '14px', color: '#E65100' }}>🌡️ Box {bx.box_number}</span>
+                {bx.draussen_at && (
+                  <span style={{ fontSize: '10px', color: '#888' }}>
+                    seit {Math.round(hoursAgo(bx.draussen_at) * 10) / 10}h draußen
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button onClick={() => onFinished?.(bx.id)} disabled={!!saving}
+                  style={{ flex: 1, background: '#3A7A3A', color: '#FFF', border: 'none',
+                    borderRadius: '7px', padding: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                  ✅ Verarbeitet
+                </button>
+                <button onClick={() => onBack?.(bx.id)} disabled={!!saving}
+                  style={{ flex: 1, background: '#FFF', color: '#1565C0', border: '2px solid #1565C0',
+                    borderRadius: '7px', padding: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                  🔄 Zurück in Kühlschrank
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Verarbeitete Boxen */}
+      {fertig.length > 0 && (
+        <div style={{ fontSize: '11px', color: '#2E7D32' }}>
+          ✅ Verarbeitet: {fertig.map(bx => `Box ${bx.box_number}`).join(', ')}
+        </div>
+      )}
+
       {boxes.length === 0 && (
-        <div style={{ fontSize: '11px', color: '#888', textAlign: 'center', padding: '4px' }}>
-          Boxen antippen um sie dieser Charge zuzuweisen
+        <div style={{ fontSize: '11px', color: '#AAA', textAlign: 'center', padding: '6px' }}>
+          Oben freie Box antippen zum Zuweisen
         </div>
       )}
     </div>
