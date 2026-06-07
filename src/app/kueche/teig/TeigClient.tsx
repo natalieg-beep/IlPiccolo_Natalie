@@ -498,8 +498,7 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
           {[
             { label: '1. Teig gemacht',      val: eTeig,  set: setETeig },
             { label: '2. Teiglinge geformt', val: eTeigl, set: setETeigl },
-            { label: '3. Im Kühlschrank',    val: eKuehl, set: setEKuehl },
-            { label: '4. Rausgeholt',        val: eDraus, set: setEDraus },
+            { label: '3. Rausgeholt',        val: eDraus, set: setEDraus },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '12px', color: '#555', minWidth: '130px' }}>{row.label}</div>
