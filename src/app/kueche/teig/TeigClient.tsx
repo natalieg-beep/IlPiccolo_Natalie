@@ -589,8 +589,8 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
         </div>
       )}
 
-      {/* Boxen-Prozess im Edit-Modus — Schritte 2, 3, 4 */}
-      {editMode && !finished && (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank' || b.stage === 'draussen') && (
+      {/* Boxen-Prozess — Schritte 2, 3, 4 (immer sichtbar, nicht nur im Edit-Modus) */}
+      {showBoxes && (
         <BoxPanel
           boxes={boxes}
           occupiedByOthers={occupiedBoxNumbers}
