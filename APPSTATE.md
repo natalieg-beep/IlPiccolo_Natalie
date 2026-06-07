@@ -1,11 +1,11 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-06 | Letzter Commit: patch15-kueche**
+**Stand: 2026-06-07 | Letzter Commit: a73ad31**
 
 ## Stack
 - Next.js 16.2.6, App Router, TypeScript, Turbopack, `src/` dir
-- Supabase SSR (`@supabase/ssr`), RLS aktiviert
-- Single-User: natalie.guenes.tr@gmail.com
+- Supabase SSR (`@supabase/ssr`), RLS aktiviert (Küchen-Tabellen: RLS deaktiviert)
+- Auth: natalie.guenes.tr@gmail.com + vedat@ilpiccolo-kas.com (Supabase Auth)
 - Git: `git@github.com:natalieg-beep/IlPiccolo_Natalie.git`
 - Vercel Deploy: `il-piccolo-natalie.vercel.app`
 - Root Directory in Vercel: leer (git init in `webapp/` Unterordner)
@@ -13,158 +13,186 @@
 
 ---
 
+## App-Bereiche
+
+### Service-Bereich (`/service`)
+Für Natalie + Vedat (Supabase Auth Login)
+
+### Management-Bereich (`/management`)
+Für Natalie + Vedat (Supabase Auth Login)
+
+### Küchen-Bereich (`/kueche`)
+Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localStorage)
+
+---
+
 ## Datenbankstruktur (Supabase)
 
-### `tables`
+### Service/Management-Tabellen
+#### `tables`
 - `id`, `label`, `location` (CHECK: outside/inside/takeaway/privat)
-- Virtuelle Tische: TakeAway (location=takeaway), Privat (location=privat)
 
-### `orders`
+#### `orders`
 - `id`, `table_id`, `status` (open/closed/transferred), `opened_at`, `closed_at`
 - `note`, `guest_origin`, `age_group`, `party_size`, `group_type`, `children_info`
-- `discount_percent`, `discount_amount` (fix ₺, patch13)
+- `discount_percent`, `discount_amount` (fix ₺)
 - `payment_method`: card | cash | friends_card | schwarz_bar | schwarz
-- `guest_country`, `guest_source`, `guest_notes` (patch12)
+- `guest_country`, `guest_source`, `guest_notes`
 
-### `order_items`
+#### `order_items`
 - `id`, `order_id`, `name`, `qty`, `unit_price`, `on_the_house`
 
-### `daily_entries`
-- `id`, `date`, `entry_type`, `amount`, `kdv` (patch14), `note`, `created_at`
-- entry_types: `menulux_brutto`, `beko1_brutto`, `beko2_brutto`, `bar_offiziell`
-- `trinkgeld`, `entnahme_privat`, `entnahme_geschaeft`
-- Legacy: `menulux_total`, `beko_total` (beide noch lesbar)
+#### `daily_entries`
+- `id`, `date`, `entry_type`, `amount`, `kdv`, `note`, `created_at`
 
-### `phrases`
-- `id`, `category`, `german`, `turkish`, `pronunciation`, `sort_order`, `formality` (both/formal/informal)
+#### `phrases`
+- `id`, `category`, `german`, `turkish`, `pronunciation`, `sort_order`, `formality`
+
+### Küchen-Tabellen (RLS deaktiviert)
+
+#### `kitchen_users`
+- `id`, `name`, `whatsapp`
+- Einträge: Natalie, Vedat (+90 554 252 72 54), Rakim (+90 534 745 97 19)
+
+#### `kitchen_dough_batches` — Teig-Chargen
+- `id`, `user_id`, `stage` (teig_gemacht | teiglinge_geformt | kuehlschrank | draussen | fertig)
+- `teig_at`, `teiglinge_at`, `kuehlschrank_at`, `draussen_at`, `fertig_at`
+- `draussen_stunden` (Raumtemperatur-Zeit, default 2)
+- `kg_teig` (numeric), `anzahl_teiglinge` (integer)
+- `notes`, `created_at`
+
+#### `kitchen_task_logs` — alle Button-Drücke
+- `id`, `task_key`, `user_id`, `logged_at`, `notes`
+
+#### `kitchen_products` — MDH
+- `id`, `name`, `category` (kaese/wurst/sonstiges), `expires_at`, `notes`, `created_at`, `created_by`
+
+#### `kitchen_freshness_settings` — Frischezeiten & Benachrichtigungen
+- `task_key` (PRIMARY KEY), `label`, `hours`, `warn_before_hours` (nullable, default 1)
 
 ---
 
 ## App-Struktur (Routen)
 
 ### Service-Bereich
-- `/service` — Tischübersicht (TablesClient.tsx)
-  - Tische: Außen / Innen / Sonstiges (TakeAway + Privat)
-  - Status-Farben: grün=offen, blau=transferred
-- `/service/tisch/[id]` — Bestellung (OrderClient.tsx)
-  - Kategorien: Pizza/Extras/Tatlılar/İçecekler/Kahveler/✏️Sonstiges
-  - Sonstiges = manuelle Einträge (Name+Preis frei)
-  - Zahlungsarten: Karte/Bar/👫Freunde(Karte)/🤝Freunde(Bar)/🎁Freunde(gratis)
-  - Freunde gratis + Privat-Tisch → Gesamtbetrag automatisch 0 ₺
-  - Rabatt: 10/20/50% oder frei % oder frei ₺
-  - Speichern → bleibt auf Tischseite (Toast "✓ Gespeichert")
-  - 🔀 Tisch verschieben → Modal mit allen Tischen
-  - ✕ Abschließen → schließt Bestellung, zurück zur Übersicht
-  - Gäste-Infos: Gruppentyp, Kinder, Herkunft, Alter, Personen, Land, Quelle, Notizen
+- `/service` — Tischübersicht
+- `/service/tisch/[id]` — Bestellung
 - `/service/phrasen` — Türkische Phrasen
-  - Kategorie-Tabs (flexWrap), Favoriten, Sie/Du Toggle, Suche
 
 ### Management-Bereich
-- `/management` — Hub (server component, zeigt heute's Umsatz + Bestellungscount)
-  - Aktive Kacheln: 📊Einnahmen, 🗂️Bestellungen, 📋Tagesabschluss
-  - Ausgegraut (disabled): 🧾Ausgaben, 📌Fixkosten
+- `/management` — Hub
 - `/management/einnahmen` — Einnahmen-Analyse
-  - Tabs: Tag/Woche(Mo-So)/Monat/Jahr + ←→ Navigation
-  - Aufschlüsselung: Karte, Bar, Freunde(Karte), Freunde(Bar), Freunde(gratis), Privat, Verschenkt
-  - Gerätekasse: Menulux+Beko aus daily_entries (nur wenn in Tagesabschluss eingetragen)
-  - Privat erscheint als "nicht im Umsatz", durchgestrichen
 - `/management/uebersicht` — Bestellungen bearbeiten
-  - Datum-Navigation ←→, XLSX-Export, PDF-Druck
-  - ✏️ Bearbeiten, 🗑️ Löschen pro Bestellung
-  - Privat: wird gezeigt aber NICHT mitgezählt in Bestellungen/Umsatz
-  - Link zu Tagesabschluss für das gewählte Datum
 - `/management/tagesabschluss` — Tagesabschluss
-  - Datum-Navigation
-  - Felder: Menulux Brutto+KDV(auto÷11), Beko1, Beko2, Bar offiziell
-  - 🙏 Trinkgeld, Bar Freunde (auto aus Bestellungen)
-  - Entnahmen: Privat+Notiz, Geschäftlich+Notiz
-  - Zusammenfassung: Gesamt Brutto/KDV/Net, Netto nach Entnahmen, Differenz App↔Kasse
-- `/management/order/[id]` — Einzelbestellung bearbeiten (von Übersicht aus)
-  - Lädt OrderClient mit backHref="/management/uebersicht"
+- `/management/order/[id]` — Einzelbestellung bearbeiten
+
+### Küchen-Bereich
+- `/kueche` — User-Auswahl (Natalie / Vedat / Rakim, kein Passwort)
+- `/kueche/home` — Hauptübersicht (Teig, Frische, Belag, Desserts, Täglich, Sonstiges)
+- `/kueche/teig` — Teig-Tracker (Detail + History)
+- `/kueche/mdh` — Mindesthaltbarkeit (Käse, Wurst etc.)
+- `/kueche/einstellungen` — Frischezeiten + Vorwarnung pro Produkt konfigurieren
 
 ---
 
-## Geschäftslogik
+## Küchen-Aufgaben (task_keys)
 
-### Zahlungsarten & Umsatz
-| Zahlungsart | Offiziell? | Umsatz | Schwarz? |
-|---|---|---|---|
-| 💳 Karte | ✅ | voll | nein |
-| 💵 Bar | ✅ | voll | nein |
-| 👫 Freunde (Karte) | ✅ | nach Rabatt | nein |
-| 🤝 Freunde (Bar) | ❌ | wird getrackt | ja |
-| 🎁 Freunde (gratis) | ❌ | 0 ₺ | ja |
-| 🏠 Privat-Tisch | intern | 0 ₺, Warenwert sichtbar | - |
+### Frische (hours aus kitchen_freshness_settings)
+| key | Label | Standard |
+|---|---|---|
+| zwiebeln | Zwiebeln geschnitten | 24h |
+| paprika | Paprika geschnitten | 48h |
+| pilze | Pilze geschnitten | 24h |
+| mozza | Mozza geöffnet | 24h |
+| thunfisch | Thunfisch | 24h |
 
-### Preisberechnung
-```
-chargeableBase = grossPrice - houseTotal (aufs Haus Items)
-discountedPrice = discountAmount > 0
-  ? chargeableBase - discountAmount
-  : chargeableBase * (1 - discount/100)
-displayTotal = isGratis ? 0 : discountedPrice
-```
+### Belag-Vorbereitung (hours aus kitchen_freshness_settings)
+| key | Label | Standard |
+|---|---|---|
+| sucuk | Sucuk | 48h |
+| salami | Ital. Salami | 48h |
+| salami_scharf | Scharfe Ital. Salami | 48h |
+| jambon | Jambon | 48h |
+| pastirma | Pastırma | 48h |
 
-### Privat
-- Tisch mit location='privat' → total immer 0
-- Warenwert wird intern angezeigt
-- Wird in Übersicht gezeigt aber NICHT in Bestellungscount/Umsatz gezählt
+### Desserts (hours aus kitchen_freshness_settings)
+| key | Label | Standard |
+|---|---|---|
+| tiramisu | Tiramisu | 96h |
+| piccolo_crunch | Piccolo Crunch | 96h |
 
-### KDV
-- Beko zeigt Brutto (KDV inklusive) als "NET SATIŞ"
-- KDV = Brutto ÷ 11 (nicht × 10%!)
-- Weil: Brutto = Net × 1.10, also KDV = Brutto × (1/11)
+### Täglich (reset pro Tag)
+klo, kueche_putzen, kehren_innen, kehren_aussen, innen_wischen, terrasse_wasser, terrasse_wischen
 
----
-
-## Menü (src/lib/menu.ts)
-- Kategorien: pizza, extra, dessert, drink, coffee, sonstiges
-- Sonstiges = manuelle Einträge in OrderClient (customPrices state)
-- Preise in ₺
+### Sonstiges (nur Log)
+gas, klimawasser
 
 ---
 
-## SQL Patches (ausführen in Supabase SQL-Editor)
+## Teig-Prozess
+1. **Teig gemacht** → 24h Kühlschrank → Button: „Teiglinge geformt"
+2. **Teiglinge geformt** → 24h Kühlschrank → Button: „Rausnehmen"
+3. **Rausgeholt** → X Stunden Raumtemperatur → Button: „✅ Verarbeitet" ODER „🔄 Zurück in Kühlschrank"
+
+- Gesamtlaufzeit: **96h** ab Teig-Herstellung (Fortschrittsbalken)
+- KG Teig + Anzahl Teiglinge werden erfasst
+- Manuelles Eintragen: Stage + Datum/Uhrzeit wählbar
+
+---
+
+## Telegram-Benachrichtigungen
+
+### Bot
+- Name: `IlPiccoloPizza_bot`
+- Token: in Supabase Secrets (`TELEGRAM_BOT_TOKEN`)
+
+### Empfänger
+| Name | chat_id | Secret |
+|---|---|---|
+| Vedat | 5170867099 | TELEGRAM_CHAT_VEDAT |
+| Rakim | 8062704156 | TELEGRAM_CHAT_RAKIM |
+| Natalie | 8749997593 | TELEGRAM_CHAT_NATALIE |
+
+### Wann wird gesendet?
+- **Vorwarnung**: X Stunden vor Fälligkeit (konfigurierbar pro Produkt, default 1h)
+- **Fälligkeit**: genau wenn Timer abläuft
+- Gilt für: Teig-Stages + alle Frische/Belag/Dessert-Tasks
+
+### Cron-Job
+- **cron-job.org** — alle 30 Minuten
+- URL: `https://cpqnduisajwyotrmqhwh.supabase.co/functions/v1/check-timers`
+- Methode: POST, Body: `{}`
+- Header: Authorization Bearer (Anon Key) + Content-Type application/json
+- Edge Function: `supabase/functions/check-timers/index.ts`
+- Deployed mit `--no-verify-jwt`
+
+### Supabase Secrets
+- TELEGRAM_BOT_TOKEN
+- TELEGRAM_CHAT_VEDAT
+- TELEGRAM_CHAT_RAKIM
+- TELEGRAM_CHAT_NATALIE
+
+---
+
+## SQL Patches
 | Patch | Was | Status |
 |---|---|---|
 | patch8 | discount_percent, payment_method, group_type, on_the_house | ✅ |
-| patch9 | Phrasen-Korrektur (kesiyoruz) | ✅ |
-| patch10_children_kasse | children_info, daily_entries Tabelle | ✅ |
+| patch9 | Phrasen-Korrektur | ✅ |
+| patch10_children_kasse | children_info, daily_entries | ✅ |
 | patch11_takeaway_privat | TakeAway+Privat virtuelle Tische | ✅ |
-| patch12_guest_fields | guest_country, guest_source, guest_notes | ✅ ausführen! |
-| patch13_discount_amount | orders.discount_amount | ✅ ausführen! |
-| patch14_tagesabschluss | daily_entries.kdv column | ✅ ausführen! |
-| phrases_patch10 | Service-Phrasen (Karte, Dessert, Tiramisu, Google) | ausführen! |
-| patch15_kueche | Küchen-Modul: kitchen_users, kitchen_dough_batches, kitchen_task_logs, kitchen_products | ausführen! |
-
-**Noch auszuführende Patches:**
-```sql
--- patch12
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_country text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_source  text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_notes   text;
-
--- patch13
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount integer DEFAULT 0;
-
--- patch14
-ALTER TABLE daily_entries ADD COLUMN IF NOT EXISTS kdv numeric(12,2);
-```
+| patch12_guest_fields | guest_country, guest_source, guest_notes | ✅ |
+| patch13_discount_amount | orders.discount_amount | ✅ |
+| patch14_tagesabschluss | daily_entries.kdv column | ✅ |
+| patch15_kueche | Küchen-Tabellen (kitchen_users etc.) | ✅ |
+| patch16_freshness_settings | kitchen_freshness_settings | ✅ |
+| — | kg_teig, anzahl_teiglinge Spalten | ✅ |
+| — | warn_before_hours Spalte | ✅ |
 
 ---
 
 ## Bekannte offene Punkte
 - Ausgaben-Seite: noch keine Funktion (ausgegraut)
 - Fixkosten-Seite: noch keine Funktion (ausgegraut)
-- Einnahmen: Differenz App↔Gerätekasse noch nicht visuell hervorgehoben in Einnahmen-Seite
-  (nur in Tagesabschluss sichtbar)
-- Tagesabschluss-Daten in Einnahmen (Woche/Monat/Jahr) werden summiert aus daily_entries
-
----
-
-## Differenzen App ↔ Beko/Menulux
-- In **Tagesabschluss**: Zeile "Differenz App ↔ Gerätekasse" zeigt Abweichung pro Tag
-- Ursachen für Differenz: nicht alle Bestellungen in App erfasst, Barzahlungen,
-  Freunde (Bar) nicht doppelt zählen
-- **TODO**: In Einnahmen-Seite könnte Differenz per Zeitraum angezeigt werden
-  (App-Umsatz offiziell vs. Menulux+Beko gesamt)
+- Burrata-Zähler (kommt später, Karte wird noch hochgeladen)
+- Einnahmen: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
