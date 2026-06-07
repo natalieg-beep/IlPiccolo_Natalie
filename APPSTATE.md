@@ -1,20 +1,22 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-07 | Letzter Commit: 4cb8f80**
+**Stand: 2026-06-07 | Letzter Commit: badb49d**
 
 ## Letzte Änderungen (07.06.2026)
-- ✅ Timezone-Bug behoben: alle datetime-local Inputs zeigen Lokalzeit (Istanbul UTC+3)
+- ✅ Cron-Job: cron-job.org → alle 30 Min, Telegram-Test (?test=true) funktioniert
+- ✅ Telegram: stündliche Erinnerung wenn überfällig (nicht nur einmalig)
+- ✅ Telegram: Frische/Belag/Dessert gebündelt in einer Nachricht, Teig einzeln pro Charge
+- ✅ Telegram-Fenster: 60 Min → 30 Min (mit needsNotification-Logik: jede volle Stunde)
+- ✅ Teig-Prozess: 4 Schritte klar definiert (siehe unten)
+- ✅ Box-Tracking: neue Tabelle kitchen_dough_boxes (1–10), pro Charge zuweisbar
+- ✅ Box-Prozess: Zuweisen → Rausnehmen → Verarbeitet / Zurück in Kühlschrank
+- ✅ Auto-fertig: Charge wird automatisch auf "fertig" gesetzt wenn alle Boxen verarbeitet
+- ✅ Gas: 2 Gasflaschen (gas_1, gas_2) unabhängig voneinander
+- ✅ Teig-Übersicht: Karte in Küchen-Übersicht klickbar → Link zu /kueche/teig
+- ✅ Timezone-Fix: datetime-local Inputs zeigen korrekte Lokalzeit (Istanbul UTC+3)
 - ✅ Batch-Namen: "Teig vom DD.MM.YYYY — Im Kühlschrank (Teiglinge)"
-- ✅ Thunfisch bei Belag hinzugefügt (24h)
-- ✅ Vorwarnung + Fälligkeit: 2 Telegram-Nachrichten pro Timer
-- ✅ Cron auf cron-job.org umgestellt (alle 30 Min, zuverlässig)
-- ✅ Einstellungen-Seite: Frischezeit + Vorwarnung pro Produkt konfigurierbar
-- ✅ Teig-Prozess neu: 3 Schritte, KG + Anzahl Teiglinge, 96h Gesamtlaufzeit, Zurück in Kühlschrank
-- ✅ Login mit E-Mail + Passwort (Vedat: vedat@ilpiccolo-kas.com hat Zugang zu Service + Management)
-- ✅ Rakim Telegram: chat_id 8062704156
-- ✅ Natalie Telegram: chat_id 8749997593
-- ✅ Neue tägliche Tasks: Küche putzen, Kehren innen, Kehren außen
-- ✅ Manuelle Zeiterfassung bei allen Tasks (✏️ Button)
+
+---
 
 ## Stack
 - Next.js 16.2.6, App Router, TypeScript, Turbopack, `src/` dir
@@ -40,9 +42,33 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 
 ---
 
+## App-Struktur (Routen)
+
+### Service-Bereich
+- `/service` — Tischübersicht
+- `/service/tisch/[id]` — Bestellung
+- `/service/phrasen` — Türkische Phrasen
+
+### Management-Bereich
+- `/management` — Hub
+- `/management/einnahmen` — Einnahmen-Analyse
+- `/management/uebersicht` — Bestellungen bearbeiten
+- `/management/tagesabschluss` — Tagesabschluss
+- `/management/order/[id]` — Einzelbestellung bearbeiten
+
+### Küchen-Bereich
+- `/kueche` — User-Auswahl (Natalie / Vedat / Rakim, kein Passwort)
+- `/kueche/home` — Hauptübersicht (Teig, Frische, Belag, Desserts, Täglich, Sonstiges)
+- `/kueche/teig` — Teig-Tracker (Detail + History + Box-Management)
+- `/kueche/mdh` — Mindesthaltbarkeit (Käse, Wurst etc.)
+- `/kueche/einstellungen` — Frischezeiten + Vorwarnung pro Produkt konfigurieren
+
+---
+
 ## Datenbankstruktur (Supabase)
 
 ### Service/Management-Tabellen
+
 #### `tables`
 - `id`, `label`, `location` (CHECK: outside/inside/takeaway/privat)
 
@@ -69,11 +95,19 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 - Einträge: Natalie, Vedat (+90 554 252 72 54), Rakim (+90 534 745 97 19)
 
 #### `kitchen_dough_batches` — Teig-Chargen
-- `id`, `user_id`, `stage` (teig_gemacht | teiglinge_geformt | kuehlschrank | draussen | fertig)
-- `teig_at`, `teiglinge_at`, `kuehlschrank_at`, `draussen_at`, `fertig_at`
-- `draussen_stunden` (Raumtemperatur-Zeit, default 2)
+- `id`, `user_id`, `stage` (teig_gemacht | teiglinge_geformt | kuehlschrank\* | draussen | fertig)
+- `teig_at`, `teiglinge_at`, `kuehlschrank_at`\*, `draussen_at`, `fertig_at`
 - `kg_teig` (numeric), `anzahl_teiglinge` (integer)
-- `notes`, `created_at`
+- `draussen_stunden` (legacy, nicht mehr aktiv genutzt), `notes`, `created_at`
+- \* `kuehlschrank` = legacy Stage, wird als `teiglinge_geformt` behandelt
+
+#### `kitchen_dough_boxes` — Box-Tracking pro Charge *(neu 07.06.2026)*
+- `id`, `batch_id` (FK → kitchen_dough_batches, CASCADE DELETE)
+- `box_number` (1–10, physische Box-Nummer)
+- `status`: kuehlschrank | draussen | fertig
+- `teiglinge_count` (optional, Anzahl Teiglinge in dieser Box)
+- `draussen_at`, `fertig_at`, `created_at`
+- RLS deaktiviert
 
 #### `kitchen_task_logs` — alle Button-Drücke
 - `id`, `task_key`, `user_id`, `logged_at`, `notes`
@@ -83,29 +117,6 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 
 #### `kitchen_freshness_settings` — Frischezeiten & Benachrichtigungen
 - `task_key` (PRIMARY KEY), `label`, `hours`, `warn_before_hours` (nullable, default 1)
-
----
-
-## App-Struktur (Routen)
-
-### Service-Bereich
-- `/service` — Tischübersicht
-- `/service/tisch/[id]` — Bestellung
-- `/service/phrasen` — Türkische Phrasen
-
-### Management-Bereich
-- `/management` — Hub
-- `/management/einnahmen` — Einnahmen-Analyse
-- `/management/uebersicht` — Bestellungen bearbeiten
-- `/management/tagesabschluss` — Tagesabschluss
-- `/management/order/[id]` — Einzelbestellung bearbeiten
-
-### Küchen-Bereich
-- `/kueche` — User-Auswahl (Natalie / Vedat / Rakim, kein Passwort)
-- `/kueche/home` — Hauptübersicht (Teig, Frische, Belag, Desserts, Täglich, Sonstiges)
-- `/kueche/teig` — Teig-Tracker (Detail + History)
-- `/kueche/mdh` — Mindesthaltbarkeit (Käse, Wurst etc.)
-- `/kueche/einstellungen` — Frischezeiten + Vorwarnung pro Produkt konfigurieren
 
 ---
 
@@ -139,18 +150,39 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 klo, kueche_putzen, kehren_innen, kehren_aussen, innen_wischen, terrasse_wasser, terrasse_wischen
 
 ### Sonstiges (nur Log)
-gas, klimawasser
+gas_1, gas_2, klimawasser
 
 ---
 
-## Teig-Prozess
-1. **Teig gemacht** → 24h Kühlschrank → Button: „Teiglinge geformt"
-2. **Teiglinge geformt** → 24h Kühlschrank → Button: „Rausnehmen"
-3. **Rausgeholt** → X Stunden Raumtemperatur → Button: „✅ Verarbeitet" ODER „🔄 Zurück in Kühlschrank"
+## Teig-Prozess (4 Schritte)
 
-- Gesamtlaufzeit: **96h** ab Teig-Herstellung (Fortschrittsbalken)
-- KG Teig + Anzahl Teiglinge werden erfasst
-- Manuelles Eintragen: Stage + Datum/Uhrzeit wählbar
+### Schritt 1 — Teig gemacht
+- Timer: 24h im Kühlschrank
+- Button in Karte: „Teiglinge geformt →"
+- Erfasst: KG Teig, Anzahl Teiglinge (optional)
+
+### Schritt 2 — Teiglinge geformt (im Kühlschrank)
+- Timer: mind. 24h, max. 72h im Kühlschrank
+- Anzeige: „✅ Mind. 24h erreicht — bereit" sobald 24h rum
+- **Im ✏️ Bearbeitungsmodus:** Boxen zuweisen (Grid 1–10)
+  - Freie Box antippen = dieser Charge zuweisen (📦 blau)
+  - Nochmal antippen = entfernen (nur wenn noch im Kühlschrank)
+  - 🔒 = Box gehört anderer aktiver Charge
+
+### Schritt 3 — Rausnehmen (Akklimatisierung)
+- **Im ✏️ Bearbeitungsmodus:** Pro zugewiesener Box: `🌡️ Rausnehmen`
+- Box wechselt auf Status `draussen`, Timestamp wird gesetzt
+- 2–4h Raumtemperatur (Teiglinge gehen nach)
+
+### Schritt 4 — Verarbeiten oder Zurück
+- **Im ✏️ Bearbeitungsmodus:** Pro draußen-Box zwei Buttons:
+  - `✅ Verarbeitet` → Box fertig, wird grün
+  - `🔄 Zurück in Kühlschrank` → Box zurück auf `kuehlschrank`-Status
+- Wenn **alle Boxen einer Charge verarbeitet** → Charge automatisch auf `fertig`
+
+### Gesamtlaufzeit
+- **96h** ab Teig-Herstellung (Fortschrittsbalken in der Karte)
+- Farbe: grün > 24h | orange > 8h | rot < 8h übrig
 
 ---
 
@@ -159,6 +191,7 @@ gas, klimawasser
 ### Bot
 - Name: `IlPiccoloPizza_bot`
 - Token: in Supabase Secrets (`TELEGRAM_BOT_TOKEN`)
+- Test-Endpunkt: POST `…/check-timers?test=true` → sendet Testnachricht an alle
 
 ### Empfänger
 | Name | chat_id | Secret |
@@ -167,10 +200,11 @@ gas, klimawasser
 | Rakim | 8062704156 | TELEGRAM_CHAT_RAKIM |
 | Natalie | 8749997593 | TELEGRAM_CHAT_NATALIE |
 
-### Wann wird gesendet?
-- **Vorwarnung**: X Stunden vor Fälligkeit (konfigurierbar pro Produkt, default 1h)
-- **Fälligkeit**: genau wenn Timer abläuft
-- Gilt für: Teig-Stages + alle Frische/Belag/Dessert-Tasks
+### Benachrichtigungs-Logik
+- **Vorwarnung** (einmalig): X Stunden vor Fälligkeit — konfigurierbar pro Produkt
+- **Fälligkeit + stündliche Erinnerung**: bei Ablauf, dann jede volle Stunde solange überfällig
+- **Frische/Belag/Dessert**: alle überfälligen Produkte in **einer gebündelten Nachricht**
+- **Teig**: **einzelne Nachricht pro Charge**
 
 ### Cron-Job
 - **cron-job.org** — alle 30 Minuten
@@ -202,6 +236,7 @@ gas, klimawasser
 | patch16_freshness_settings | kitchen_freshness_settings | ✅ |
 | — | kg_teig, anzahl_teiglinge Spalten | ✅ |
 | — | warn_before_hours Spalte | ✅ |
+| patch17_dough_boxes | kitchen_dough_boxes Tabelle | ✅ |
 
 ---
 
@@ -210,3 +245,4 @@ gas, klimawasser
 - Fixkosten-Seite: noch keine Funktion (ausgegraut)
 - Burrata-Zähler (kommt später, Karte wird noch hochgeladen)
 - Einnahmen: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
+- Boxen 7–10 kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
