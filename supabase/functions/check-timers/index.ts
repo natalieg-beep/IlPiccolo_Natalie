@@ -1,18 +1,19 @@
 // Supabase Edge Function: check-timers
-// Läuft alle 30 Min → prüft Teig + Frische → sendet Vorwarnung (1h vorher) + Fälligkeit
+// Läuft alle 30 Min → Teig: einzeln je Charge | Frische/Belag/Dessert: gebündelt
+// Benachrichtigung: bei Fälligkeit + stündliche Erinnerung solange überfällig
 //
 // Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_VEDAT, TELEGRAM_CHAT_RAKIM, TELEGRAM_CHAT_NATALIE
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// Fenster: 60 Min damit bei Cron-Jitter (±5 Min) keine Benachrichtigung verpasst wird
-const WINDOW_H = 1.0
+// Cron läuft alle 30 Min → Fenster 30 Min damit kein Schlag verpasst wird
+const WINDOW_H = 0.5
 
 const DOUGH_STAGE_LABELS: Record<string, string> = {
-  teig_gemacht:       '➡️ Jetzt Teiglinge formen!',
-  teiglinge_geformt:  '➡️ Teiglinge in den Kühlschrank!',
-  kuehlschrank:       '➡️ Teiglinge rausnehmen!',
-  draussen:           '✅ Teig fertig zum Backen!',
+  teig_gemacht:      '➡️ Jetzt Teiglinge formen!',
+  teiglinge_geformt: '➡️ Teiglinge rausnehmen!',
+  kuehlschrank:      '➡️ Teiglinge rausnehmen!',
+  draussen:          '✅ Teig fertig zum Backen!',
 }
 
 const DOUGH_STAGE_HOURS: Record<string, number> = {
@@ -36,13 +37,24 @@ async function broadcast(token: string, chats: string[], text: string) {
   }
 }
 
-function inWindow(elapsedH: number, targetH: number): boolean {
-  return elapsedH >= targetH && elapsedH < targetH + WINDOW_H
+// Feuert bei Fälligkeit UND danach jede volle Stunde (0h, 1h, 2h überfällig...)
+function needsNotification(elapsedH: number, limitH: number): boolean {
+  if (elapsedH < limitH) return false
+  const overdueH = elapsedH - limitH
+  // Jede volle Stunde: 0.0–0.5, 1.0–1.5, 2.0–2.5 ...
+  return overdueH % 1.0 < WINDOW_H
+}
+
+// Vorwarnung: nur einmalig X Stunden vor Fälligkeit
+function inWarnWindow(elapsedH: number, limitH: number, warnH: number): boolean {
+  const target = limitH - warnH
+  return elapsedH >= target && elapsedH < target + WINDOW_H
 }
 
 Deno.serve(async (req) => {
   const url = new URL(req.url)
   const isTest = url.searchParams.get('test') === 'true'
+
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -55,7 +67,6 @@ Deno.serve(async (req) => {
     Deno.env.get('TELEGRAM_CHAT_NATALIE') ?? '',
   ]
 
-  // Test-Modus: ?test=true → sofort Testnachricht an alle
   if (isTest) {
     await broadcast(token, chats, '🍕 <b>Il Piccolo Küche</b>\n✅ Telegram-Test erfolgreich! Benachrichtigungen funktionieren.')
     return new Response(JSON.stringify({ test: true, sent_to: chats.filter(Boolean).length }), {
@@ -66,7 +77,7 @@ Deno.serve(async (req) => {
   const now = Date.now()
   const notified: string[] = []
 
-  // ── 1. Teig-Timer ───────────────────────────────────────────────────────────
+  // ── 1. Teig-Timer — je Charge einzeln ──────────────────────────────────────
   const { data: batches } = await supabase
     .from('kitchen_dough_batches')
     .select('*')
@@ -76,7 +87,7 @@ Deno.serve(async (req) => {
     const stage = b.stage as string
     const tsField = stage === 'teig_gemacht'      ? b.teig_at
       : stage === 'teiglinge_geformt' ? b.teiglinge_at
-      : stage === 'kuehlschrank'      ? b.kuehlschrank_at
+      : stage === 'kuehlschrank'      ? (b.kuehlschrank_at ?? b.teiglinge_at)
       : stage === 'draussen'          ? b.draussen_at
       : null
     if (!tsField) continue
@@ -85,24 +96,25 @@ Deno.serve(async (req) => {
     const limitH = stage === 'draussen' ? (b.draussen_stunden ?? 2) : (DOUGH_STAGE_HOURS[stage] ?? 999)
     const action = DOUGH_STAGE_LABELS[stage] ?? 'Nächste Stage'
     const gestartet = new Date(b.teig_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-    const gesamtLeft = Math.max(0, 96 - elapsedH)
 
-    // Vorwarnung: 1h vor Fälligkeit
-    if (inWindow(elapsedH, limitH - 1)) {
-      const msg = `🍕 <b>Il Piccolo Küche</b>\n⚠️ <b>TEIG — noch 1 Stunde!</b>\n${action}\n\n<i>Charge: ${gestartet} · noch ~${Math.ceil(gesamtLeft)}h Gesamtlaufzeit</i>`
+    // Vorwarnung: 1h vor Fälligkeit (einmalig)
+    if (inWarnWindow(elapsedH, limitH, 1)) {
+      const msg = `🍕 <b>Il Piccolo Küche</b>\n⚠️ <b>TEIG — noch 1 Stunde!</b>\n${action}\n\n<i>Charge: ${gestartet}</i>`
       await broadcast(token, chats, msg)
       notified.push(`teig-warn:${b.id}(${stage})`)
     }
 
-    // Fälligkeit
-    if (inWindow(elapsedH, limitH)) {
-      const msg = `🍕 <b>Il Piccolo Küche</b>\n⏰ <b>TEIG JETZT FÄLLIG!</b>\n${action}\n\n<i>Charge: ${gestartet} · noch ~${Math.ceil(gesamtLeft)}h Gesamtlaufzeit</i>`
+    // Fälligkeit + stündliche Erinnerung
+    if (needsNotification(elapsedH, limitH)) {
+      const overdueH = Math.floor(elapsedH - limitH)
+      const overdueText = overdueH >= 1 ? ` (seit ${overdueH}h überfällig)` : ''
+      const msg = `🍕 <b>Il Piccolo Küche</b>\n⏰ <b>TEIG FÄLLIG${overdueText}!</b>\n${action}\n\n<i>Charge: ${gestartet}</i>`
       await broadcast(token, chats, msg)
-      notified.push(`teig-due:${b.id}(${stage})`)
+      notified.push(`teig-due:${b.id}(${stage})+${overdueH}h`)
     }
   }
 
-  // ── 2. Frische-Tasks ────────────────────────────────────────────────────────
+  // ── 2. Frische/Belag/Dessert — gebündelt ───────────────────────────────────
   const { data: settings } = await supabase
     .from('kitchen_freshness_settings')
     .select('task_key, label, hours, warn_before_hours')
@@ -112,11 +124,13 @@ Deno.serve(async (req) => {
     .select('task_key, logged_at')
     .order('logged_at', { ascending: false })
 
-  // Neuester Log pro task_key
   const latestLog: Record<string, string> = {}
   for (const log of logs ?? []) {
     if (!latestLog[log.task_key]) latestLog[log.task_key] = log.logged_at
   }
+
+  const warnItems: string[] = []
+  const overdueItems: { label: string; overdueH: number }[] = []
 
   for (const task of settings ?? []) {
     const ts = latestLog[task.task_key]
@@ -124,22 +138,37 @@ Deno.serve(async (req) => {
 
     const elapsedH = (now - new Date(ts).getTime()) / 3_600_000
     const limitH = task.hours
-    const warnH = task.warn_before_hours  // null = keine Vorwarnung
-    const zeitpunkt = new Date(ts).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    const warnH = task.warn_before_hours
 
-    // Vorwarnung (nur wenn warn_before_hours gesetzt)
-    if (warnH && inWindow(elapsedH, limitH - warnH)) {
-      const msg = `🍕 <b>Il Piccolo Küche</b>\n⚠️ <b>${task.label} — noch ${warnH}h frisch!</b>\n\nEingetragen: ${zeitpunkt}\nBitte bald neu vorbereiten.`
-      await broadcast(token, chats, msg)
+    // Vorwarnung (einmalig, nur wenn konfiguriert)
+    if (warnH && inWarnWindow(elapsedH, limitH, warnH)) {
+      warnItems.push(`⚠️ ${task.label} — noch ${warnH}h frisch`)
       notified.push(`frische-warn:${task.task_key}`)
     }
 
-    // Fälligkeit
-    if (inWindow(elapsedH, limitH)) {
-      const msg = `🍕 <b>Il Piccolo Küche</b>\n🚨 <b>${task.label} nicht mehr frisch!</b>\n\nEingetragen: ${zeitpunkt}\nBitte sofort neu vorbereiten!`
-      await broadcast(token, chats, msg)
-      notified.push(`frische-due:${task.task_key}`)
+    // Fälligkeit + stündliche Erinnerung → sammeln für gebündelte Nachricht
+    if (needsNotification(elapsedH, limitH)) {
+      const overdueH = Math.floor(elapsedH - limitH)
+      overdueItems.push({ label: task.label, overdueH })
+      notified.push(`frische-due:${task.task_key}+${overdueH}h`)
     }
+  }
+
+  // Vorwarnungen gebündelt senden
+  if (warnItems.length > 0) {
+    const msg = `🍕 <b>Il Piccolo Küche — Vorwarnung</b>\n\n${warnItems.join('\n')}\n\n<i>Bitte bald neu vorbereiten.</i>`
+    await broadcast(token, chats, msg)
+  }
+
+  // Überfällige gebündelt senden
+  if (overdueItems.length > 0) {
+    const maxOverdue = Math.max(...overdueItems.map(i => i.overdueH))
+    const overdueText = maxOverdue >= 1 ? ` (bis zu ${maxOverdue}h überfällig)` : ''
+    const lines = overdueItems.map(i =>
+      i.overdueH >= 1 ? `🚨 ${i.label} (${i.overdueH}h überfällig)` : `🚨 ${i.label}`
+    ).join('\n')
+    const msg = `🍕 <b>Il Piccolo Küche — Nicht mehr frisch${overdueText}!</b>\n\n${lines}\n\n<i>Bitte sofort neu vorbereiten!</i>`
+    await broadcast(token, chats, msg)
   }
 
   return new Response(JSON.stringify({ checked_batches: batches?.length ?? 0, notified }), {
