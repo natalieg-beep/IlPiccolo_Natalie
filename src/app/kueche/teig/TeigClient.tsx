@@ -10,7 +10,7 @@ interface DoughBatch {
   stage: DoughStage
   teig_at: string | null
   teiglinge_at: string | null
-  kuehlschrank_at: string | null  // legacy
+  kuehlschrank_at: string | null
   draussen_at: string | null
   fertig_at: string | null
   draussen_stunden: number
@@ -22,23 +22,36 @@ interface DoughBatch {
   kitchen_users?: { name: string }
 }
 
-// ── Prozess ────────────────────────────────────────────────────────────────
-// teig_gemacht (24h Kühlschrank) → teiglinge_geformt (24h Kühlschrank)
-// → draussen/rausgeholt (2h Raumtemp) → fertig ODER zurück in Kühlschrank
-// Gesamtlaufzeit: 96h ab teig_at
+interface DoughBox {
+  id: string
+  batch_id: string
+  box_number: number
+  teiglinge_count: number | null
+  status: 'kuehlschrank' | 'draussen' | 'fertig'
+  draussen_at: string | null
+  fertig_at: string | null
+}
 
 const STAGE_LABELS: Record<string, string> = {
-  teig_gemacht:       '1. Teig gemacht — im Kühlschrank',
-  teiglinge_geformt:  '2. Teiglinge geformt — im Kühlschrank',
-  kuehlschrank:       '2. Im Kühlschrank',   // legacy
-  draussen:           '3. Rausgeholt — Raumtemperatur',
-  fertig:             '✅ Verarbeitet',
+  teig_gemacht:      '1. Teig gemacht — im Kühlschrank',
+  teiglinge_geformt: '2. Teiglinge — im Kühlschrank',
+  kuehlschrank:      '2. Im Kühlschrank',
+  draussen:          '3. Rausgeholt — Raumtemperatur',
+  fertig:            '✅ Verarbeitet',
 }
 
 const STAGE_TIMER_H: Partial<Record<string, number>> = {
   teig_gemacht:      24,
   teiglinge_geformt: 24,
-  kuehlschrank:      24,  // legacy
+  kuehlschrank:      24,
+}
+
+const STAGE_SHORT: Record<string, string> = {
+  teig_gemacht:      'Im Kühlschrank (Teig)',
+  teiglinge_geformt: 'Im Kühlschrank (Teiglinge)',
+  kuehlschrank:      'Im Kühlschrank',
+  draussen:          'Rausgeholt',
+  fertig:            'Verarbeitet ✅',
 }
 
 function stageTs(b: DoughBatch): string | null {
@@ -59,15 +72,6 @@ function fmtTs(ts: string | null): string {
   return new Date(ts).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-// Batch-Name: "Teig vom 05.06.2026 — Im Kühlschrank"
-const STAGE_SHORT: Record<string, string> = {
-  teig_gemacht:       'Im Kühlschrank (Teig)',
-  teiglinge_geformt:  'Im Kühlschrank (Teiglinge)',
-  kuehlschrank:       'Im Kühlschrank',
-  draussen:           'Rausgeholt',
-  fertig:             'Verarbeitet ✅',
-}
-
 function batchName(b: DoughBatch): string {
   const datum = b.teig_at
     ? new Date(b.teig_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -81,16 +85,15 @@ export default function TeigClient() {
   const router = useRouter()
   const [user, setUser] = useState<KitchenUser | null>(null)
   const [batches, setBatches] = useState<DoughBatch[]>([])
+  const [allBoxes, setAllBoxes] = useState<DoughBox[]>([])
   const [saving, setSaving] = useState<string | null>(null)
   const [showFinished, setShowFinished] = useState(false)
 
-  // Neuer Teig — Formular
   const [showNewForm, setShowNewForm] = useState(false)
   const [newDT,  setNewDT]  = useState(nowLocalInput)
   const [newKg,  setNewKg]  = useState('')
   const [newAnz, setNewAnz] = useState('')
 
-  // Manuell eintragen
   const [showManual, setShowManual] = useState(false)
   const [manStage, setManStage] = useState<DoughStage>('teiglinge_geformt')
   const [manDT,   setManDT]   = useState(nowLocalInput)
@@ -104,12 +107,18 @@ export default function TeigClient() {
   }, [router])
 
   const load = useCallback(async () => {
-    const { data } = await createClient()
-      .from('kitchen_dough_batches')
-      .select('*, kitchen_users(name)')
-      .order('created_at', { ascending: false })
-      .limit(50)
-    setBatches((data ?? []) as DoughBatch[])
+    const db = createClient()
+    const [{ data: batchData }, { data: boxData }] = await Promise.all([
+      db.from('kitchen_dough_batches')
+        .select('*, kitchen_users(name)')
+        .order('created_at', { ascending: false })
+        .limit(50),
+      db.from('kitchen_dough_boxes')
+        .select('*')
+        .order('box_number', { ascending: true }),
+    ])
+    setBatches((batchData ?? []) as DoughBatch[])
+    setAllBoxes((boxData ?? []) as DoughBox[])
   }, [])
 
   useEffect(() => { if (user) load() }, [user, load])
@@ -118,8 +127,7 @@ export default function TeigClient() {
     if (!user) return
     setSaving('new')
     await createClient().from('kitchen_dough_batches').insert({
-      user_id: user.id,
-      stage: 'teig_gemacht',
+      user_id: user.id, stage: 'teig_gemacht',
       teig_at: localInputToISO(newDT),
       kg_teig: newKg ? parseFloat(newKg) : null,
       anzahl_teiglinge: newAnz ? parseInt(newAnz) : null,
@@ -153,16 +161,15 @@ export default function TeigClient() {
     setSaving(b.id)
     const now = new Date().toISOString()
     const u: Record<string, string | DoughStage> = {}
-    if (b.stage === 'teig_gemacht')                          { u.stage = 'teiglinge_geformt'; u.teiglinge_at = now }
+    if (b.stage === 'teig_gemacht')                              { u.stage = 'teiglinge_geformt'; u.teiglinge_at = now }
     else if (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank') { u.stage = 'draussen'; u.draussen_at = now }
-    else if (b.stage === 'draussen')                         { u.stage = 'fertig'; u.fertig_at = now }
+    else if (b.stage === 'draussen')                             { u.stage = 'fertig'; u.fertig_at = now }
     await createClient().from('kitchen_dough_batches').update(u).eq('id', b.id)
     await load(); setSaving(null)
   }
 
   async function zurueckInKuehlschrank(b: DoughBatch) {
     setSaving(b.id + '-back')
-    // Zurück → Stage auf teiglinge_geformt, neues teiglinge_at = jetzt
     await createClient().from('kitchen_dough_batches')
       .update({ stage: 'teiglinge_geformt', teiglinge_at: new Date().toISOString(), draussen_at: null })
       .eq('id', b.id)
@@ -180,13 +187,57 @@ export default function TeigClient() {
     await load()
   }
 
-  async function setDraussen(b: DoughBatch, h: number) {
+  async function setDraussenH(b: DoughBatch, h: number) {
     await createClient().from('kitchen_dough_batches').update({ draussen_stunden: h }).eq('id', b.id)
     await load()
   }
 
+  // ── Box-Operationen ────────────────────────────────────────────────────────
+  async function assignBox(batchId: string, boxNumber: number) {
+    setSaving('box-' + boxNumber)
+    await createClient().from('kitchen_dough_boxes').insert({
+      batch_id: batchId, box_number: boxNumber, status: 'kuehlschrank',
+    })
+    await load(); setSaving(null)
+  }
+
+  async function removeBox(boxId: string) {
+    setSaving('box-rm-' + boxId)
+    await createClient().from('kitchen_dough_boxes').delete().eq('id', boxId)
+    await load(); setSaving(null)
+  }
+
+  async function takeOutBox(boxId: string) {
+    setSaving('box-out-' + boxId)
+    await createClient().from('kitchen_dough_boxes')
+      .update({ status: 'draussen', draussen_at: new Date().toISOString() })
+      .eq('id', boxId)
+    await load(); setSaving(null)
+  }
+
+  async function boxFinished(boxId: string) {
+    setSaving('box-done-' + boxId)
+    await createClient().from('kitchen_dough_boxes')
+      .update({ status: 'fertig', fertig_at: new Date().toISOString() })
+      .eq('id', boxId)
+    await load(); setSaving(null)
+  }
+
+  async function boxBack(boxId: string) {
+    setSaving('box-back-' + boxId)
+    await createClient().from('kitchen_dough_boxes')
+      .update({ status: 'kuehlschrank', draussen_at: null })
+      .eq('id', boxId)
+    await load(); setSaving(null)
+  }
+
   const active   = batches.filter(b => b.stage !== 'fertig')
   const finished = batches.filter(b => b.stage === 'fertig')
+
+  // Welche Box-Nummern sind gerade in aktiven Chargen belegt?
+  const activeBatchIds = new Set(active.map(b => b.id))
+  const occupiedBoxes = allBoxes.filter(bx => activeBatchIds.has(bx.batch_id) && bx.status !== 'fertig')
+
   if (!user) return null
 
   return (
@@ -205,13 +256,11 @@ export default function TeigClient() {
 
       <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-        {/* Prozess-Erklärung */}
         <div style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', color: '#1B3A1B', lineHeight: '1.6' }}>
-          <b>Prozess:</b> Teig machen → 24h Kühlschrank → Teiglinge formen → 24h Kühlschrank → Rausnehmen → ~2h Raumtemperatur → Verarbeiten (oder zurück in Kühlschrank)<br/>
+          <b>Prozess:</b> Teig machen (24h) → Teiglinge formen (24–72h) → Boxen rausnehmen → 2–4h Raumtemp → Verarbeiten oder zurück<br/>
           <b>Gesamtlaufzeit: 96h ab Teig-Herstellung</b>
         </div>
 
-        {/* Buttons */}
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={() => { setShowNewForm(s => !s); setShowManual(false) }} style={{
             flex: 1, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '12px',
@@ -223,7 +272,6 @@ export default function TeigClient() {
           }}>✏️ Manuell eintragen</button>
         </div>
 
-        {/* Neuer Teig Formular */}
         {showNewForm && (
           <FormCard title="Neuer Teig — jetzt gemacht" onClose={() => setShowNewForm(false)}>
             <FormRow label="Zeitpunkt">
@@ -237,7 +285,7 @@ export default function TeigClient() {
               </div>
               <div style={{ flex: 1 }}>
                 <label style={lbl}>Anz. Teiglinge (später)</label>
-                <input type="number" min="0" placeholder="z.B. 18" value={newAnz}
+                <input type="number" min="0" placeholder="z.B. 30" value={newAnz}
                   onChange={e => setNewAnz(e.target.value)} style={inp} />
               </div>
             </div>
@@ -245,14 +293,13 @@ export default function TeigClient() {
           </FormCard>
         )}
 
-        {/* Manuell Formular */}
         {showManual && (
           <FormCard title="Bestehende Charge eintragen" onClose={() => setShowManual(false)}>
             <FormRow label="Aktuelles Stadium">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {[
-                  { key: 'teig_gemacht' as DoughStage,      label: '1. Teig gemacht (gerade in Kühlschrank)' },
-                  { key: 'teiglinge_geformt' as DoughStage, label: '2. Teiglinge geformt (gerade in Kühlschrank)' },
+                  { key: 'teig_gemacht' as DoughStage,      label: '1. Teig gemacht (im Kühlschrank)' },
+                  { key: 'teiglinge_geformt' as DoughStage, label: '2. Teiglinge geformt (im Kühlschrank)' },
                   { key: 'draussen' as DoughStage,          label: '3. Gerade rausgeholt' },
                 ].map(s => (
                   <button key={s.key} onClick={() => setManStage(s.key)} style={{
@@ -279,7 +326,7 @@ export default function TeigClient() {
               </div>
               <div style={{ flex: 1 }}>
                 <label style={lbl}>Anz. Teiglinge</label>
-                <input type="number" min="0" placeholder="z.B. 18" value={manAnz}
+                <input type="number" min="0" placeholder="z.B. 30" value={manAnz}
                   onChange={e => setManAnz(e.target.value)} style={inp} />
               </div>
             </div>
@@ -287,23 +334,32 @@ export default function TeigClient() {
           </FormCard>
         )}
 
-        {/* Aktive Chargen */}
         {active.length === 0 && !showNewForm && !showManual && (
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Keine aktiven Chargen.</p>
         )}
-        {active.map(b => (
-          <BatchCard key={b.id}
-            b={b}
-            onAdvance={() => advance(b)}
-            onBack={() => zurueckInKuehlschrank(b)}
-            onDelete={() => deleteBatch(b)}
-            onSaveEdit={(u) => saveEdit(b.id, u)}
-            onSetDraussen={(h) => setDraussen(b, h)}
-            saving={saving === b.id || saving === b.id + '-back'}
-          />
-        ))}
 
-        {/* Fertige Chargen */}
+        {active.map(b => {
+          const batchBoxes = allBoxes.filter(bx => bx.batch_id === b.id)
+          return (
+            <BatchCard key={b.id}
+              b={b}
+              boxes={batchBoxes}
+              occupiedBoxNumbers={occupiedBoxes.filter(bx => bx.batch_id !== b.id).map(bx => bx.box_number)}
+              onAdvance={() => advance(b)}
+              onBack={() => zurueckInKuehlschrank(b)}
+              onDelete={() => deleteBatch(b)}
+              onSaveEdit={(u) => saveEdit(b.id, u)}
+              onSetDraussen={(h) => setDraussenH(b, h)}
+              onAssignBox={(n) => assignBox(b.id, n)}
+              onRemoveBox={removeBox}
+              onTakeOutBox={takeOutBox}
+              onBoxFinished={boxFinished}
+              onBoxBack={boxBack}
+              saving={saving}
+            />
+          )
+        })}
+
         {finished.length > 0 && (
           <>
             <button onClick={() => setShowFinished(s => !s)} style={{
@@ -313,7 +369,8 @@ export default function TeigClient() {
               {showFinished ? '▲ Ausblenden' : `▼ ${finished.length} verarbeitete Chargen`}
             </button>
             {showFinished && finished.map(b => (
-              <BatchCard key={b.id} b={b} saving={false} finished
+              <BatchCard key={b.id} b={b} boxes={allBoxes.filter(bx => bx.batch_id === b.id)}
+                occupiedBoxNumbers={[]} saving={null} finished
                 onDelete={() => deleteBatch(b)}
                 onSaveEdit={(u) => saveEdit(b.id, u)}
               />
@@ -327,34 +384,40 @@ export default function TeigClient() {
 
 // ── BatchCard ─────────────────────────────────────────────────────────────────
 
-function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, saving, finished }: {
+function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen,
+  onAssignBox, onRemoveBox, onTakeOutBox, onBoxFinished, onBoxBack, saving, finished }: {
   b: DoughBatch
+  boxes: DoughBox[]
+  occupiedBoxNumbers: number[]
   onAdvance?: () => void
   onBack?: () => void
   onDelete?: () => void
   onSaveEdit?: (u: Record<string, string | number | null | DoughStage>) => void
   onSetDraussen?: (h: number) => void
-  saving: boolean
+  onAssignBox?: (n: number) => void
+  onRemoveBox?: (id: string) => void
+  onTakeOutBox?: (id: string) => void
+  onBoxFinished?: (id: string) => void
+  onBoxBack?: (id: string) => void
+  saving: string | null
   finished?: boolean
 }) {
   const [editMode, setEditMode] = useState(false)
-  const [eTeig,   setETeig]   = useState(toLocalInputValue(b.teig_at))
-  const [eTeigl,  setETeigl]  = useState(toLocalInputValue(b.teiglinge_at))
-  const [eKuehl,  setEKuehl]  = useState(toLocalInputValue(b.kuehlschrank_at))
-  const [eDraus,  setEDraus]  = useState(toLocalInputValue(b.draussen_at))
-  const [eStage,  setEStage]  = useState<DoughStage>(b.stage === 'kuehlschrank' ? 'teiglinge_geformt' : b.stage)
-  const [eKg,     setEKg]     = useState(b.kg_teig ? String(b.kg_teig) : '')
-  const [eAnz,    setEAnz]    = useState(b.anzahl_teiglinge ? String(b.anzahl_teiglinge) : '')
+  const [eTeig,  setETeig]  = useState(toLocalInputValue(b.teig_at))
+  const [eTeigl, setETeigl] = useState(toLocalInputValue(b.teiglinge_at))
+  const [eDraus, setEDraus] = useState(toLocalInputValue(b.draussen_at))
+  const [eStage, setEStage] = useState<DoughStage>(b.stage === 'kuehlschrank' ? 'teiglinge_geformt' : b.stage)
+  const [eKg,    setEKg]    = useState(b.kg_teig ? String(b.kg_teig) : '')
+  const [eAnz,   setEAnz]   = useState(b.anzahl_teiglinge ? String(b.anzahl_teiglinge) : '')
 
   function saveEdit() {
     onSaveEdit?.({
       stage: eStage,
-      teig_at:          eTeig  ? localInputToISO(eTeig)  : null,
-      teiglinge_at:     eTeigl ? localInputToISO(eTeigl) : null,
-      kuehlschrank_at:  eKuehl ? localInputToISO(eKuehl) : null,
-      draussen_at:      eDraus ? localInputToISO(eDraus) : null,
-      kg_teig:       eKg  ? parseFloat(eKg)  : null,
-      anzahl_teiglinge: eAnz ? parseInt(eAnz) : null,
+      teig_at:      eTeig  ? localInputToISO(eTeig)  : null,
+      teiglinge_at: eTeigl ? localInputToISO(eTeigl) : null,
+      draussen_at:  eDraus ? localInputToISO(eDraus) : null,
+      kg_teig:          eKg  ? parseFloat(eKg)  : null,
+      anzahl_teiglinge: eAnz ? parseInt(eAnz)   : null,
     })
     setEditMode(false)
   }
@@ -365,11 +428,10 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
   const remaining = elapsed !== null && timerH ? Math.max(0, timerH - elapsed) : null
   const overdue = remaining === 0
 
-  // 96h Gesamtlaufzeit
   const totalElapsed = b.teig_at ? hoursAgo(b.teig_at) : null
-  const totalLeft = totalElapsed !== null ? Math.max(0, 96 - totalElapsed) : null
-  const totalPct  = totalElapsed !== null ? Math.min(100, (totalElapsed / 96) * 100) : 0
-  const totalColor = totalLeft === null ? '#999' : totalLeft > 24 ? '#3A7A3A' : totalLeft > 8 ? '#FF8F00' : '#E53935'
+  const totalLeft    = totalElapsed !== null ? Math.max(0, 96 - totalElapsed) : null
+  const totalPct     = totalElapsed !== null ? Math.min(100, (totalElapsed / 96) * 100) : 0
+  const totalColor   = totalLeft === null ? '#999' : totalLeft > 24 ? '#3A7A3A' : totalLeft > 8 ? '#FF8F00' : '#E53935'
 
   const col = finished ? 'green'
     : !ts ? 'grey'
@@ -377,10 +439,12 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
     : remaining !== null && remaining < timerH * 0.25 ? 'yellow'
     : 'green'
 
-  const nextLabel = b.stage === 'teig_gemacht'      ? 'Teiglinge geformt →'
-    : (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank') ? 'Rausnehmen →'
-    : b.stage === 'draussen' ? '✅ Verarbeitet'
+  const nextLabel = b.stage === 'teig_gemacht' ? 'Teiglinge geformt →'
+    : (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank') ? 'Alle rausnehmen →'
+    : b.stage === 'draussen' ? '✅ Alle verarbeitet'
     : ''
+
+  const showBoxes = !finished && (b.stage === 'teiglinge_geformt' || b.stage === 'kuehlschrank' || b.stage === 'draussen')
 
   return (
     <div style={{ background: COLOR[col].bg, border: `2px solid ${COLOR[col].border}`, borderRadius: '14px', padding: '14px' }}>
@@ -397,7 +461,6 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
               </span>
             )}
           </div>
-          {/* KG + Anzahl */}
           <div style={{ fontSize: '11px', color: '#666', marginTop: '3px', display: 'flex', gap: '12px' }}>
             {b.kg_teig ? <span>⚖️ {b.kg_teig} kg</span> : null}
             {b.anzahl_teiglinge ? <span>🫓 {b.anzahl_teiglinge} Stück</span> : null}
@@ -434,28 +497,28 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
         </div>
       )}
 
-      {/* Aktions-Buttons */}
+      {/* Aktions-Buttons (Gesamt-Batch) */}
       {!finished && !editMode && (
-        <div style={{ display: 'flex', gap: '8px', marginBottom: b.stage === 'draussen' ? '0' : '0' }}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
           {nextLabel && (
-            <button onClick={onAdvance} disabled={saving} style={{
+            <button onClick={onAdvance} disabled={!!saving} style={{
               flex: 2, background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '8px',
-              padding: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+              padding: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1,
             }}>{nextLabel}</button>
           )}
           {b.stage === 'draussen' && onBack && (
-            <button onClick={onBack} disabled={saving} style={{
+            <button onClick={onBack} disabled={!!saving} style={{
               flex: 1, background: '#FFF', color: '#1565C0', border: '1.5px solid #1565C0',
               borderRadius: '8px', padding: '10px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-            }}>🔄 Zurück in Kühlschrank</button>
+            }}>🔄 Alle zurück</button>
           )}
         </div>
       )}
 
-      {/* Raumtemp-Stunden (bei draussen) */}
+      {/* Raumtemp-Zeit (draussen, gesamt) */}
       {b.stage === 'draussen' && !editMode && onSetDraussen && (
-        <div style={{ marginTop: '8px', background: '#FFFFFF88', borderRadius: '8px', padding: '8px' }}>
-          <div style={{ fontSize: '11px', color: '#555', marginBottom: '5px' }}>Raumtemperatur-Zeit:</div>
+        <div style={{ background: '#FFFFFF88', borderRadius: '8px', padding: '8px', marginBottom: '10px' }}>
+          <div style={{ fontSize: '11px', color: '#555', marginBottom: '5px' }}>Raumtemperatur-Zeit (Batch):</div>
           <div style={{ display: 'flex', gap: '5px' }}>
             {[1, 2, 3, 4].map(h => (
               <button key={h} onClick={() => onSetDraussen(h)} style={{
@@ -467,6 +530,21 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
             ))}
           </div>
         </div>
+      )}
+
+      {/* Boxen-Panel */}
+      {showBoxes && !editMode && (
+        <BoxPanel
+          batchId={b.id}
+          boxes={boxes}
+          occupiedByOthers={occupiedBoxNumbers}
+          saving={saving}
+          onAssign={onAssignBox}
+          onRemove={onRemoveBox}
+          onTakeOut={onTakeOutBox}
+          onFinished={onBoxFinished}
+          onBack={onBoxBack}
+        />
       )}
 
       {/* Timeline */}
@@ -519,13 +597,11 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
           <div style={{ display: 'flex', gap: '8px' }}>
             <div style={{ flex: 1 }}>
               <label style={lbl}>KG Teig</label>
-              <input type="number" step="0.1" value={eKg} onChange={e => setEKg(e.target.value)}
-                placeholder="z.B. 5.5" style={inp} />
+              <input type="number" step="0.1" value={eKg} onChange={e => setEKg(e.target.value)} placeholder="z.B. 5.5" style={inp} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={lbl}>Anz. Teiglinge</label>
-              <input type="number" value={eAnz} onChange={e => setEAnz(e.target.value)}
-                placeholder="z.B. 18" style={inp} />
+              <input type="number" value={eAnz} onChange={e => setEAnz(e.target.value)} placeholder="z.B. 30" style={inp} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -538,6 +614,128 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
               padding: '10px', fontSize: '13px', fontWeight: '700', color: '#FFF', cursor: 'pointer',
             }}>Speichern</button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── BoxPanel ──────────────────────────────────────────────────────────────────
+
+function BoxPanel({ batchId, boxes, occupiedByOthers, saving, onAssign, onRemove, onTakeOut, onFinished, onBack }: {
+  batchId: string
+  boxes: DoughBox[]
+  occupiedByOthers: number[]
+  saving: string | null
+  onAssign?: (n: number) => void
+  onRemove?: (id: string) => void
+  onTakeOut?: (id: string) => void
+  onFinished?: (id: string) => void
+  onBack?: (id: string) => void
+}) {
+  const assignedNums = new Set(boxes.map(bx => bx.box_number))
+  const ALL_BOXES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+  function boxColor(n: number): { bg: string; border: string; text: string; label: string } {
+    const bx = boxes.find(b => b.box_number === n)
+    if (bx) {
+      if (bx.status === 'fertig')      return { bg: '#E8F5E9', border: '#81C784', text: '#2E7D32', label: '✅' }
+      if (bx.status === 'draussen')    return { bg: '#FFF8E1', border: '#FFB300', text: '#E65100', label: '🌡️' }
+      return { bg: '#E3F2FD', border: '#42A5F5', text: '#1565C0', label: '📦' }
+    }
+    if (occupiedByOthers.includes(n)) return { bg: '#F5F5F5', border: '#BDBDBD', text: '#9E9E9E', label: '🔒' }
+    return { bg: '#FAFAFA', border: '#E0E0E0', text: '#555', label: '' }
+  }
+
+  const draussen = boxes.filter(bx => bx.status === 'draussen')
+  const inFridge = boxes.filter(bx => bx.status === 'kuehlschrank')
+
+  return (
+    <div style={{ background: '#FFFFFF99', borderRadius: '10px', padding: '10px', marginBottom: '8px' }}>
+      <div style={{ fontSize: '12px', fontWeight: '700', color: '#1B3A1B', marginBottom: '8px' }}>📦 Boxen</div>
+
+      {/* Box-Grid 1–10 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '5px', marginBottom: '10px' }}>
+        {ALL_BOXES.map(n => {
+          const c = boxColor(n)
+          const bx = boxes.find(b => b.box_number === n)
+          const isSaving = saving === 'box-' + n || saving === 'box-rm-' + bx?.id
+          const isOccupied = occupiedByOthers.includes(n)
+          const isAssigned = assignedNums.has(n)
+          return (
+            <button key={n}
+              disabled={isSaving || isOccupied}
+              onClick={() => {
+                if (isAssigned && bx && bx.status === 'kuehlschrank') onRemove?.(bx.id)
+                else if (!isAssigned && !isOccupied) onAssign?.(n)
+              }}
+              style={{
+                background: c.bg, border: `2px solid ${c.border}`, borderRadius: '8px',
+                padding: '6px 2px', fontSize: '11px', fontWeight: '700', color: c.text,
+                cursor: isOccupied ? 'not-allowed' : 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px',
+                opacity: isSaving ? 0.5 : 1,
+              }}
+            >
+              <span style={{ fontSize: '14px' }}>{c.label || '+'}</span>
+              <span>Box {n}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <span>📦 Im Kühlschrank</span>
+        <span>🌡️ Draußen</span>
+        <span>✅ Verarbeitet</span>
+        <span>🔒 Andere Charge</span>
+        <span style={{ color: '#3A7A3A' }}>+ Antippen zum Zuweisen / Entfernen</span>
+      </div>
+
+      {/* Draußen-Boxen: Aktionen */}
+      {draussen.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '6px' }}>
+          <div style={{ fontSize: '11px', fontWeight: '700', color: '#E65100' }}>🌡️ Gerade draußen:</div>
+          {draussen.map(bx => (
+            <div key={bx.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#FFF8E1', borderRadius: '8px', padding: '7px 10px' }}>
+              <span style={{ fontWeight: '700', fontSize: '13px', flex: 1, color: '#E65100' }}>
+                Box {bx.box_number}
+                {bx.draussen_at && <span style={{ fontSize: '10px', color: '#888', fontWeight: '400', marginLeft: '6px' }}>
+                  seit {Math.round(hoursAgo(bx.draussen_at) * 10) / 10}h
+                </span>}
+              </span>
+              <button onClick={() => onFinished?.(bx.id)} disabled={!!saving}
+                style={{ background: '#3A7A3A', color: '#FFF', border: 'none', borderRadius: '6px', padding: '5px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
+                ✅ Verarbeitet
+              </button>
+              <button onClick={() => onBack?.(bx.id)} disabled={!!saving}
+                style={{ background: '#FFF', color: '#1565C0', border: '1.5px solid #1565C0', borderRadius: '6px', padding: '5px 8px', fontSize: '11px', cursor: 'pointer' }}>
+                🔄 Zurück
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Kühlschrank-Boxen: Rausnehmen */}
+      {inFridge.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ fontSize: '11px', fontWeight: '700', color: '#1565C0' }}>📦 Im Kühlschrank:</div>
+          {inFridge.map(bx => (
+            <div key={bx.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#E3F2FD', borderRadius: '8px', padding: '7px 10px' }}>
+              <span style={{ fontWeight: '700', fontSize: '13px', flex: 1, color: '#1565C0' }}>Box {bx.box_number}</span>
+              <button onClick={() => onTakeOut?.(bx.id)} disabled={!!saving}
+                style={{ background: '#FF8F00', color: '#FFF', border: 'none', borderRadius: '6px', padding: '5px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
+                🌡️ Rausnehmen
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {boxes.length === 0 && (
+        <div style={{ fontSize: '11px', color: '#888', textAlign: 'center', padding: '4px' }}>
+          Boxen antippen um sie dieser Charge zuzuweisen
         </div>
       )}
     </div>
@@ -577,6 +775,5 @@ function SaveBtn({ onClick, disabled, label }: { onClick: () => void; disabled: 
   )
 }
 
-// ── Style-Konstanten ──────────────────────────────────────────────────────────
 const lbl: React.CSSProperties = { fontSize: '12px', fontWeight: '600', color: '#555', display: 'block', marginBottom: '4px' }
 const inp: React.CSSProperties = { width: '100%', padding: '9px 10px', borderRadius: '8px', border: '1.5px solid #DDD', fontSize: '14px', boxSizing: 'border-box' }
