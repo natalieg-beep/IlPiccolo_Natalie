@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { type KitchenUser, type DoughStage, COLOR } from '@/lib/kitchen'
+import { type KitchenUser, type DoughStage, COLOR, toLocalInputValue, nowLocalInput, localInputToISO } from '@/lib/kitchen'
 
 interface DoughBatch {
   id: string
@@ -59,13 +59,20 @@ function fmtTs(ts: string | null): string {
   return new Date(ts).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function fmtDTLocal(ts: string | null): string {
-  if (!ts) return ''
-  return new Date(ts).toISOString().slice(0, 16)
+// Batch-Name: "Teig vom 05.06.2026 — Im Kühlschrank"
+const STAGE_SHORT: Record<string, string> = {
+  teig_gemacht:       'Im Kühlschrank (Teig)',
+  teiglinge_geformt:  'Im Kühlschrank (Teiglinge)',
+  kuehlschrank:       'Im Kühlschrank',
+  draussen:           'Rausgeholt',
+  fertig:             'Verarbeitet ✅',
 }
 
-function toISO(dtLocal: string): string {
-  return dtLocal ? new Date(dtLocal).toISOString() : ''
+function batchName(b: DoughBatch): string {
+  const datum = b.teig_at
+    ? new Date(b.teig_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '?'
+  return `Teig vom ${datum} — ${STAGE_SHORT[b.stage] ?? b.stage}`
 }
 
 // ── Hauptkomponente ───────────────────────────────────────────────────────────
@@ -79,15 +86,14 @@ export default function TeigClient() {
 
   // Neuer Teig — Formular
   const [showNewForm, setShowNewForm] = useState(false)
-  const nowDT = () => new Date().toISOString().slice(0, 16)
-  const [newDT,  setNewDT]  = useState(nowDT)
+  const [newDT,  setNewDT]  = useState(nowLocalInput)
   const [newKg,  setNewKg]  = useState('')
   const [newAnz, setNewAnz] = useState('')
 
   // Manuell eintragen
   const [showManual, setShowManual] = useState(false)
   const [manStage, setManStage] = useState<DoughStage>('teiglinge_geformt')
-  const [manDT,   setManDT]   = useState(nowDT)
+  const [manDT,   setManDT]   = useState(nowLocalInput)
   const [manKg,   setManKg]   = useState('')
   const [manAnz,  setManAnz]  = useState('')
 
@@ -114,18 +120,18 @@ export default function TeigClient() {
     await createClient().from('kitchen_dough_batches').insert({
       user_id: user.id,
       stage: 'teig_gemacht',
-      teig_at: toISO(newDT) || new Date().toISOString(),
+      teig_at: localInputToISO(newDT),
       kg_teig: newKg ? parseFloat(newKg) : null,
       anzahl_teiglinge: newAnz ? parseInt(newAnz) : null,
     })
-    setShowNewForm(false); setNewDT(nowDT()); setNewKg(''); setNewAnz('')
+    setShowNewForm(false); setNewDT(nowLocalInput()); setNewKg(''); setNewAnz('')
     await load(); setSaving(null)
   }
 
   async function createManual() {
     if (!user) return
     setSaving('manual')
-    const ts = toISO(manDT) || new Date().toISOString()
+    const ts = localInputToISO(manDT)
     const stageOrder = ['teig_gemacht', 'teiglinge_geformt', 'draussen']
     const idx = stageOrder.indexOf(manStage)
     const fields: Record<string, string | number | null> = {
@@ -139,7 +145,7 @@ export default function TeigClient() {
       fields[tsFields[i]] = new Date(new Date(ts).getTime() - backH * 3_600_000).toISOString()
     }
     await createClient().from('kitchen_dough_batches').insert(fields)
-    setShowManual(false); setManDT(nowDT()); setManKg(''); setManAnz('')
+    setShowManual(false); setManDT(nowLocalInput()); setManKg(''); setManAnz('')
     await load(); setSaving(null)
   }
 
@@ -332,9 +338,9 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
   finished?: boolean
 }) {
   const [editMode, setEditMode] = useState(false)
-  const [eTeig,   setETeig]   = useState(fmtDTLocal(b.teig_at))
-  const [eTeigl,  setETeigl]  = useState(fmtDTLocal(b.teiglinge_at))
-  const [eDraus,  setEDraus]  = useState(fmtDTLocal(b.draussen_at))
+  const [eTeig,   setETeig]   = useState(toLocalInputValue(b.teig_at))
+  const [eTeigl,  setETeigl]  = useState(toLocalInputValue(b.teiglinge_at))
+  const [eDraus,  setEDraus]  = useState(toLocalInputValue(b.draussen_at))
   const [eStage,  setEStage]  = useState<DoughStage>(b.stage)
   const [eKg,     setEKg]     = useState(b.kg_teig ? String(b.kg_teig) : '')
   const [eAnz,    setEAnz]    = useState(b.anzahl_teiglinge ? String(b.anzahl_teiglinge) : '')
@@ -342,9 +348,9 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
   function saveEdit() {
     onSaveEdit?.({
       stage: eStage,
-      teig_at:       eTeig  ? toISO(eTeig)  : null,
-      teiglinge_at:  eTeigl ? toISO(eTeigl) : null,
-      draussen_at:   eDraus ? toISO(eDraus) : null,
+      teig_at:       eTeig  ? localInputToISO(eTeig)  : null,
+      teiglinge_at:  eTeigl ? localInputToISO(eTeigl) : null,
+      draussen_at:   eDraus ? localInputToISO(eDraus) : null,
       kg_teig:       eKg  ? parseFloat(eKg)  : null,
       anzahl_teiglinge: eAnz ? parseInt(eAnz) : null,
     })
@@ -380,7 +386,7 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
       {/* Kopfzeile */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: '700', fontSize: '14px', color: COLOR[col].text }}>{STAGE_LABELS[b.stage]}</div>
+          <div style={{ fontWeight: '700', fontSize: '15px', color: COLOR[col].text }}>{batchName(b)}</div>
           <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
             seit: {fmtTs(ts)}
             {remaining !== null && !finished && (

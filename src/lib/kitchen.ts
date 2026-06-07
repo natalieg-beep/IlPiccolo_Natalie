@@ -69,6 +69,26 @@ export const DOUGH_TIMER_HOURS: Partial<Record<DoughStage, number>> = {
 
 // ── Hilfsfunktionen ───────────────────────────────────────────────────────────
 
+// datetime-local Input zeigt immer Lokalzeit — diese Funktion konvertiert korrekt
+export function toLocalInputValue(ts: string | null | undefined): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  // Ziehe UTC-Offset ab damit der Input die Lokalzeit zeigt
+  const offset = d.getTimezoneOffset() * 60_000
+  return new Date(d.getTime() - offset).toISOString().slice(0, 16)
+}
+
+// Aktuellen Moment als datetime-local Wert (Lokalzeit)
+export function nowLocalInput(): string {
+  return toLocalInputValue(new Date().toISOString())
+}
+
+// datetime-local Wert → ISO-String (Browser behandelt es als Lokalzeit)
+export function localInputToISO(val: string): string {
+  if (!val) return new Date().toISOString()
+  return new Date(val).toISOString()
+}
+
 export function hoursAgo(ts: string | null | undefined): number | null {
   if (!ts) return null
   return (Date.now() - new Date(ts).getTime()) / 3_600_000

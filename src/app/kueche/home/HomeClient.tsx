@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   FRESHNESS_TASKS, BELAG_TASKS, DESSERT_TASKS, DAILY_TASKS, LOG_TASKS,
   type KitchenUser, type TaskDef, type DoughStage,
-  hoursAgo, formatTsFull, nextDueTs, formatTs, isToday, freshnessColor, COLOR,
+  hoursAgo, formatTsFull, nextDueTs, formatTs, isToday, freshnessColor, COLOR, nowLocalInput, localInputToISO,
 } from '@/lib/kitchen'
 
 interface DoughBatch {
@@ -276,15 +276,9 @@ function Section({ title, children, action }: { title: string; children: React.R
   )
 }
 
-// Lokale Datum+Zeit → ISO
-function toISO(date: string, time: string) {
-  return new Date(`${date}T${time}:00`).toISOString()
-}
-
 function TaskRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null; onLog: (iso?: string) => void; saving: boolean }) {
   const [showManual, setShowManual] = useState(false)
-  const [manDate, setManDate] = useState(new Date().toISOString().slice(0, 10))
-  const [manTime, setManTime] = useState(new Date().toTimeString().slice(0, 5))
+  const [manDT, setManDT] = useState(nowLocalInput)
 
   const col = freshnessColor(ts, task.hours ?? 24)
   const remainingH = ts && task.hours ? Math.max(0, (task.hours ?? 0) - hoursAgo(ts)!) : null
@@ -316,11 +310,9 @@ function TaskRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null
       </div>
       {showManual && (
         <div style={{ background: '#F9FBF9', border: `1.5px solid ${COLOR[col].border}`, borderTop: 'none', borderRadius: '0 0 10px 10px', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={manDate} onChange={e => setManDate(e.target.value)}
-            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
-          <input type="time" value={manTime} onChange={e => setManTime(e.target.value)}
-            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
-          <button onClick={() => { onLog(toISO(manDate, manTime)); setShowManual(false) }} disabled={saving}
+          <input type="datetime-local" value={manDT} onChange={e => setManDT(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px', flex: 1 }} />
+          <button onClick={() => { onLog(localInputToISO(manDT)); setShowManual(false) }} disabled={saving}
             style={btnStyle('#3A7A3A', '#FFF', '13px')}>Speichern</button>
         </div>
       )}
@@ -330,8 +322,7 @@ function TaskRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null
 
 function DailyRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | null; onLog: (iso?: string) => void; saving: boolean }) {
   const [showManual, setShowManual] = useState(false)
-  const [manDate, setManDate] = useState(new Date().toISOString().slice(0, 10))
-  const [manTime, setManTime] = useState(new Date().toTimeString().slice(0, 5))
+  const [manDT, setManDT] = useState(nowLocalInput)
 
   const done = isToday(ts)
   const col = done ? 'green' : 'red'
@@ -364,11 +355,9 @@ function DailyRow({ task, ts, onLog, saving }: { task: TaskDef; ts: string | nul
       </div>
       {showManual && (
         <div style={{ background: '#F9FBF9', border: `1.5px solid ${COLOR[col].border}`, borderTop: 'none', borderRadius: '0 0 10px 10px', padding: '10px 12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={manDate} onChange={e => setManDate(e.target.value)}
-            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
-          <input type="time" value={manTime} onChange={e => setManTime(e.target.value)}
-            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }} />
-          <button onClick={() => { onLog(toISO(manDate, manTime)); setShowManual(false) }} disabled={saving}
+          <input type="datetime-local" value={manDT} onChange={e => setManDT(e.target.value)}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px', flex: 1 }} />
+          <button onClick={() => { onLog(localInputToISO(manDT)); setShowManual(false) }} disabled={saving}
             style={btnStyle('#3A7A3A', '#FFF', '13px')}>Speichern</button>
         </div>
       )}
