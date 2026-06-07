@@ -1,6 +1,20 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-07 | Letzter Commit: a73ad31**
+**Stand: 2026-06-07 | Letzter Commit: 4cb8f80**
+
+## Letzte Änderungen (07.06.2026)
+- ✅ Timezone-Bug behoben: alle datetime-local Inputs zeigen Lokalzeit (Istanbul UTC+3)
+- ✅ Batch-Namen: "Teig vom DD.MM.YYYY — Im Kühlschrank (Teiglinge)"
+- ✅ Thunfisch bei Belag hinzugefügt (24h)
+- ✅ Vorwarnung + Fälligkeit: 2 Telegram-Nachrichten pro Timer
+- ✅ Cron auf cron-job.org umgestellt (alle 30 Min, zuverlässig)
+- ✅ Einstellungen-Seite: Frischezeit + Vorwarnung pro Produkt konfigurierbar
+- ✅ Teig-Prozess neu: 3 Schritte, KG + Anzahl Teiglinge, 96h Gesamtlaufzeit, Zurück in Kühlschrank
+- ✅ Login mit E-Mail + Passwort (Vedat: vedat@ilpiccolo-kas.com hat Zugang zu Service + Management)
+- ✅ Rakim Telegram: chat_id 8062704156
+- ✅ Natalie Telegram: chat_id 8749997593
+- ✅ Neue tägliche Tasks: Küche putzen, Kehren innen, Kehren außen
+- ✅ Manuelle Zeiterfassung bei allen Tasks (✏️ Button)
 
 ## Stack
 - Next.js 16.2.6, App Router, TypeScript, Turbopack, `src/` dir
