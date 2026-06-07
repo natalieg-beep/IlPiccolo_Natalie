@@ -44,7 +44,7 @@ const STAGE_TIMER_H: Partial<Record<string, number>> = {
 function stageTs(b: DoughBatch): string | null {
   if (b.stage === 'teig_gemacht')      return b.teig_at
   if (b.stage === 'teiglinge_geformt') return b.teiglinge_at
-  if (b.stage === 'kuehlschrank')      return b.kuehlschrank_at
+  if (b.stage === 'kuehlschrank')      return b.teiglinge_at ?? b.kuehlschrank_at
   if (b.stage === 'draussen')          return b.draussen_at
   return b.fertig_at
 }
@@ -342,7 +342,7 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
   const [eTeigl,  setETeigl]  = useState(toLocalInputValue(b.teiglinge_at))
   const [eKuehl,  setEKuehl]  = useState(toLocalInputValue(b.kuehlschrank_at))
   const [eDraus,  setEDraus]  = useState(toLocalInputValue(b.draussen_at))
-  const [eStage,  setEStage]  = useState<DoughStage>(b.stage)
+  const [eStage,  setEStage]  = useState<DoughStage>(b.stage === 'kuehlschrank' ? 'teiglinge_geformt' : b.stage)
   const [eKg,     setEKg]     = useState(b.kg_teig ? String(b.kg_teig) : '')
   const [eAnz,    setEAnz]    = useState(b.anzahl_teiglinge ? String(b.anzahl_teiglinge) : '')
 
@@ -511,10 +511,10 @@ function BatchCard({ b, onAdvance, onBack, onDelete, onSaveEdit, onSetDraussen, 
             <div style={{ fontSize: '12px', color: '#555', minWidth: '130px' }}>Stadium</div>
             <select value={eStage} onChange={e => setEStage(e.target.value as DoughStage)}
               style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #CCC', fontSize: '13px' }}>
-              <option value="teig_gemacht">1. Teig gemacht</option>
-              <option value="teiglinge_geformt">2. Teiglinge geformt</option>
-              <option value="draussen">3. Rausgeholt</option>
-              <option value="fertig">Verarbeitet</option>
+              <option value="teig_gemacht">1. Teig gemacht (im Kühlschrank)</option>
+              <option value="teiglinge_geformt">2. Teiglinge (im Kühlschrank)</option>
+              <option value="draussen">3. Rausgeholt (akklimatisiert)</option>
+              <option value="fertig">Verarbeitet ✅</option>
             </select>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
