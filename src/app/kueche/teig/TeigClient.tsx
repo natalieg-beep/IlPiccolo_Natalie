@@ -535,7 +535,6 @@ function BatchCard({ b, boxes, occupiedBoxNumbers, onAdvance, onBack, onDelete, 
       {/* Boxen-Panel */}
       {showBoxes && !editMode && (
         <BoxPanel
-          batchId={b.id}
           boxes={boxes}
           occupiedByOthers={occupiedBoxNumbers}
           saving={saving}
