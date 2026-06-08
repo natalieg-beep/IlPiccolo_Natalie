@@ -7,6 +7,16 @@ import { createClient } from '@/lib/supabase/client'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
+function bufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let b64 = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    b64 += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(b64)
+}
+
 const CATEGORIES: { key: string; label: string; icon: string }[] = [
   { key: 'molkerei',   label: 'Molkerei',          icon: '🧀' },
   { key: 'wurst',      label: 'Wurst & Aufschnitt', icon: '🥩' },
@@ -73,7 +83,7 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
     setScanning(true); setScanError(null); setScannedItems(null)
     try {
       const buf = await file.arrayBuffer()
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      const b64 = bufferToBase64(buf)
       const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
