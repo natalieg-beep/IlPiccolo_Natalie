@@ -244,10 +244,17 @@ export default function OrderClient({ table, existingOrder, backHref }: {
 
   async function closeOrder() {
     if (!existingOrder?.id) return
+    if (!paymentMethod) {
+      alert('Bitte zuerst eine Zahlungsart auswählen.')
+      return
+    }
     if (!confirm('Bestellung abschließen?')) return
     setSaving(true)
-    await supabase.from('orders').update({ status: 'closed', closed_at: new Date().toISOString() })
-      .eq('id', existingOrder.id)
+    await supabase.from('orders').update({
+      status: 'closed',
+      closed_at: new Date().toISOString(),
+      payment_method: paymentMethod,
+    }).eq('id', existingOrder.id)
     router.push(backHref ?? '/service')
     router.refresh()
   }
