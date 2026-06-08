@@ -2,7 +2,7 @@
 // Nimmt ein Base64-Bild oder Text-Inhalt, schickt es an Claude Vision,
 // gibt strukturierte Produktliste zurück (noch nicht gespeichert — UI bestätigt zuerst)
 
-const CLAUDE_MODEL = 'claude-opus-4-8'
+const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
 interface ScanRequest {
   image_base64?: string  // base64-kodiertes Bild (JPEG/PNG/WebP/PDF)
