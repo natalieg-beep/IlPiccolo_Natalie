@@ -1,6 +1,22 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-07 | Letzter Commit: badb49d**
+**Stand: 2026-06-08 | Letzter Commit: siehe git log**
+
+## Letzte Änderungen (08.06.2026)
+- ✅ Service/OrderClient: "Aufs Haus" für einzelne Einheiten bei qty > 1 (Stepper − 🎁n +)
+  - `onTheHouse` war `Set<string>`, jetzt `Record<string, number>` (Anzahl gratis pro Item)
+  - Beim Speichern: bei teilweise gratis → 2 DB-Zeilen (eine on_the_house=true, eine false)
+  - Beim Laden: gleiche Namen werden korrekt zusammengeführt
+- ✅ Teig-Tracker: komplett neu gebaut
+  - Alle Prozessschritte ①②③ immer sichtbar (nicht je nach Stage versteckt)
+  - Jeder Timestamp hat ✏️ Edit-Button (auch draußen-Zeitstempel pro Box)
+  - Box-Zuweisung in Schritt ②: Box erbt automatisch `teiglinge_at` als "im Kühlschrank seit"
+  - Schritt ③ erscheint automatisch sobald erste Box rausgeholt wird
+  - Jede draußen-Box hat eigenen individuellen 2–4h Timer ab `draussen_at`
+  - Legacy-Stages (draussen/kuehlschrank) werden als teiglinge_geformt behandelt
+- ✅ Einstellungen: "Keine Meldung" Option hinzugefügt (warn_before_hours = -1 als Sentinel)
+  - "Alle deaktivieren" Button setzt alle Einträge auf "Keine Meldung"
+  - Aktuell alle auf "Keine Meldung" gesetzt (Testphase)
 
 ## Letzte Änderungen (07.06.2026)
 - ✅ Cron-Job: cron-job.org → alle 30 Min, Telegram-Test (?test=true) funktioniert
@@ -116,7 +132,9 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 - `id`, `name`, `category` (kaese/wurst/sonstiges), `expires_at`, `notes`, `created_at`, `created_by`
 
 #### `kitchen_freshness_settings` — Frischezeiten & Benachrichtigungen
-- `task_key` (PRIMARY KEY), `label`, `hours`, `warn_before_hours` (nullable, default 1)
+- `task_key` (PRIMARY KEY), `label`, `hours`, `warn_before_hours` (nullable integer)
+- `warn_before_hours` Werte: `-1` = Keine Meldung · `null` = nur bei Fälligkeit · `N` = N Stunden vorher + bei Fälligkeit
+- **Aktuell alle auf `-1` gesetzt (Testphase, Stand 08.06.2026)**
 
 ---
 
@@ -154,35 +172,35 @@ gas_1, gas_2, klimawasser
 
 ---
 
-## Teig-Prozess (4 Schritte)
+## Teig-Prozess (Schritte ①②③)
 
-### Schritt 1 — Teig gemacht
-- Timer: 24h im Kühlschrank
-- Button in Karte: „Teiglinge geformt →"
-- Erfasst: KG Teig, Anzahl Teiglinge (optional)
+Alle Schritte immer gleichzeitig sichtbar — kein versteckter Stage-Wechsel.
+Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 
-### Schritt 2 — Teiglinge geformt (im Kühlschrank)
-- Timer: mind. 24h, max. 72h im Kühlschrank
-- Anzeige: „✅ Mind. 24h erreicht — bereit" sobald 24h rum
-- **Im ✏️ Bearbeitungsmodus:** Boxen zuweisen (Grid 1–10)
-  - Freie Box antippen = dieser Charge zuweisen (📦 blau)
-  - Nochmal antippen = entfernen (nur wenn noch im Kühlschrank)
-  - 🔒 = Box gehört anderer aktiver Charge
+### ① Teig gemacht
+- Timer: 24h im Kühlschrank (Ampel: blau → gelb → grün → rot nach 36h)
+- Button: „✓ Teiglinge geformt → jetzt eintragen" erscheint wenn noch kein teiglinge_at
 
-### Schritt 3 — Rausnehmen (Akklimatisierung)
-- **Im ✏️ Bearbeitungsmodus:** Pro zugewiesener Box: `🌡️ Rausnehmen`
-- Box wechselt auf Status `draussen`, Timestamp wird gesetzt
-- 2–4h Raumtemperatur (Teiglinge gehen nach)
+### ② Teiglinge geformt (im Kühlschrank)
+- Timer: mind. 24h, max. 72h (Ampel: blau → gelb → grün → rot nach 72h)
+- Box-Grid 1–10: Antippen = Box dieser Charge zuweisen
+  - Box bekommt automatisch `teiglinge_at` als Kühlschrank-Startzeit
+  - ❄️ = zugewiesen + im Kühlschrank · 🌡️ = draußen · ✅ = fertig · 🔒 = andere Charge
+  - ❄️ nochmal antippen = entfernen (nur wenn noch im Kühlschrank)
+- Pro ❄️-Box: Teiglinge-Anzahl editierbar (default 6) + „Rausnehmen 🌡️" Button
 
-### Schritt 4 — Verarbeiten oder Zurück
-- **Im ✏️ Bearbeitungsmodus:** Pro draußen-Box zwei Buttons:
-  - `✅ Verarbeitet` → Box fertig, wird grün
-  - `🔄 Zurück in Kühlschrank` → Box zurück auf `kuehlschrank`-Status
-- Wenn **alle Boxen einer Charge verarbeitet** → Charge automatisch auf `fertig`
+### ③ Draußen (Raumtemperatur)
+- Erscheint automatisch sobald erste Box rausgeholt
+- **Jede Box individuell getimed** ab ihrem eigenen `draussen_at`
+- Ampel: blau (< 2h) → grün (2–4h bereit) → rot (> 4h)
+- Timestamp ✏️ editierbar
+- Pro Box: `✅ Verarbeitet` oder `🔄 Zurück in Kühlschrank`
+- Wenn alle Boxen verarbeitet → Charge automatisch auf `fertig` → geht in Historie
 
-### Gesamtlaufzeit
-- **96h** ab Teig-Herstellung (Fortschrittsbalken in der Karte)
-- Farbe: grün > 24h | orange > 8h | rot < 8h übrig
+### Boxen
+- 10 physische Boxen (1–10), fest nummeriert
+- Teiglinge pro Box: default 6, manuell änderbar
+- Eine Box kann nur einer aktiven Charge gleichzeitig gehören
 
 ---
 
@@ -201,10 +219,13 @@ gas_1, gas_2, klimawasser
 | Natalie | 8749997593 | TELEGRAM_CHAT_NATALIE |
 
 ### Benachrichtigungs-Logik
+- **Keine Meldung** (`warn_before_hours = -1`): Kein Telegram, Ampel in App bleibt aktiv
 - **Vorwarnung** (einmalig): X Stunden vor Fälligkeit — konfigurierbar pro Produkt
 - **Fälligkeit + stündliche Erinnerung**: bei Ablauf, dann jede volle Stunde solange überfällig
 - **Frische/Belag/Dessert**: alle überfälligen Produkte in **einer gebündelten Nachricht**
 - **Teig**: **einzelne Nachricht pro Charge**
+
+> ⚠️ Die Edge Function `check-timers` muss `warn_before_hours = -1` prüfen und das Item überspringen!
 
 ### Cron-Job
 - **cron-job.org** — alle 30 Minuten

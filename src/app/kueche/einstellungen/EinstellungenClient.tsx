@@ -18,7 +18,8 @@ const ICONS: Record<string, string> = {
 
 const QUICK_HOURS = [12, 24, 48, 72, 96, 120]
 const WARN_OPTIONS = [
-  { val: null, label: 'Keine Vorwarnung' },
+  { val: -1,   label: '🔕 Keine Meldung' },   // kein Telegram, auch nicht bei Fälligkeit
+  { val: null, label: 'Nur bei Fälligkeit' },
   { val: 1,    label: '1h vorher' },
   { val: 2,    label: '2h vorher' },
   { val: 3,    label: '3h vorher' },
@@ -27,12 +28,14 @@ const WARN_OPTIONS = [
 ]
 
 export default function EinstellungenClient() {
-  const [settings, setSettings] = useState<Setting[]>([])
-  const [editing, setEditing] = useState<string | null>(null)
-  const [editHours, setEditHours] = useState('')
-  const [editWarn, setEditWarn] = useState<number | null>(1)
-  const [saving, setSaving] = useState<string | null>(null)
-  const [saved, setSaved] = useState<string | null>(null)
+  const [settings,   setSettings]   = useState<Setting[]>([])
+  const [editing,    setEditing]     = useState<string | null>(null)
+  const [editHours,  setEditHours]   = useState('')
+  const [editWarn,   setEditWarn]    = useState<number | null>(1)
+  const [saving,     setSaving]      = useState<string | null>(null)
+  const [saved,      setSaved]       = useState<string | null>(null)
+  const [mutingAll,  setMutingAll]   = useState(false)
+  const [mutedAll,   setMutedAll]    = useState(false)
 
   const load = useCallback(async () => {
     const { data } = await createClient()
@@ -43,6 +46,21 @@ export default function EinstellungenClient() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  async function muteAll() {
+    setMutingAll(true)
+    const db = createClient()
+    // Alle Einträge auf warn_before_hours = -1 setzen (= Keine Meldung)
+    for (const s of settings) {
+      await db.from('kitchen_freshness_settings')
+        .update({ warn_before_hours: -1 })
+        .eq('task_key', s.task_key)
+    }
+    await load()
+    setMutingAll(false)
+    setMutedAll(true)
+    setTimeout(() => setMutedAll(false), 3000)
+  }
 
   function startEdit(s: Setting) {
     setEditing(s.task_key)
@@ -88,8 +106,25 @@ export default function EinstellungenClient() {
 
         <div style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#1B3A1B', lineHeight: '1.6' }}>
           💡 <b>Frischezeit:</b> Wann gilt etwas als nicht mehr frisch?<br/>
-          💬 <b>Vorwarnung:</b> Telegram-Nachricht X Stunden vorher + nochmal genau zur Fälligkeit.
+          💬 <b>Vorwarnung:</b> Telegram-Nachricht X Stunden vorher + nochmal genau zur Fälligkeit.<br/>
+          🔕 <b>Keine Meldung:</b> Keine Telegram-Nachricht, Ampel-Anzeige in der App bleibt aktiv.
         </div>
+
+        {/* Alle auf einmal stumm schalten */}
+        <button
+          onClick={muteAll}
+          disabled={mutingAll}
+          style={{
+            width: '100%', background: mutedAll ? '#3A7A3A' : '#FFF3E0',
+            border: `1.5px solid ${mutedAll ? '#3A7A3A' : '#FFB300'}`,
+            color: mutedAll ? '#FFF' : '#E65100',
+            borderRadius: '10px', padding: '12px', fontSize: '14px',
+            fontWeight: 700, cursor: 'pointer',
+            opacity: mutingAll ? 0.6 : 1,
+          }}
+        >
+          {mutedAll ? '✓ Alle auf „Keine Meldung" gesetzt' : mutingAll ? 'Wird gespeichert…' : '🔕 Alle Meldungen deaktivieren'}
+        </button>
 
         {settings.map(s => (
           <div key={s.task_key} style={{ background: '#FFFFFF', borderRadius: '12px', padding: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
@@ -105,9 +140,11 @@ export default function EinstellungenClient() {
                     <>
                       Frisch: <b>{hoursLabel(s.hours)}</b>
                       {' · '}
-                      {s.warn_before_hours
-                        ? <span style={{ color: '#E65100' }}>⏰ {s.warn_before_hours}h vorher + bei Fälligkeit</span>
-                        : <span style={{ color: '#888' }}>nur bei Fälligkeit</span>}
+                      {s.warn_before_hours === -1
+                        ? <span style={{ color: '#888' }}>🔕 Keine Meldung</span>
+                        : s.warn_before_hours
+                          ? <span style={{ color: '#E65100' }}>⏰ {s.warn_before_hours}h vorher + bei Fälligkeit</span>
+                          : <span style={{ color: '#888' }}>nur bei Fälligkeit</span>}
                     </>
                   )}
                 </div>
@@ -162,9 +199,11 @@ export default function EinstellungenClient() {
                     ))}
                   </div>
                   <div style={{ fontSize: '11px', color: '#888', marginTop: '6px' }}>
-                    {editWarn
-                      ? `→ Nachricht ${editWarn}h vor Ablauf + nochmal genau bei Fälligkeit`
-                      : '→ Nur eine Nachricht genau bei Fälligkeit'}
+                    {editWarn === -1
+                      ? '→ Keine Telegram-Nachricht, auch nicht bei Fälligkeit'
+                      : editWarn
+                        ? `→ Nachricht ${editWarn}h vor Ablauf + nochmal genau bei Fälligkeit`
+                        : '→ Nur eine Nachricht genau bei Fälligkeit'}
                   </div>
                 </div>
 
