@@ -3,6 +3,22 @@
 **Stand: 2026-06-08 | Letzter Commit: siehe git log**
 
 ## Letzte Änderungen (08.06.2026)
+- ✅ **Global Bottom-Navigation**: fixe Tab-Bar auf allen Seiten (Küche / Service / Management)
+  - `src/components/BottomNav.tsx` — Client Component, nutzt `usePathname`
+  - Aktiver Tab farbig hervorgehoben (grün/gold/dunkel), unsichtbar auf `/login`
+  - `layout.tsx` Root: `paddingBottom` für safe-area-inset
+- ✅ **Ausgaben / Einkaufspreise** (`/management/ausgaben`) — komplett neu
+  - Produktmatrix nach Kategorien, aufklappbarer Preisverlauf
+  - Scan via Foto oder Text (PDF copy-paste) → Claude Vision → Bestätigungsscreen → Speichern
+  - Manueller Preis- und Produkteintrag
+  - Edge Function `scan-receipt` (Supabase) → Claude API (Sonnet 4.6, ~$0.02/Scan)
+  - Base64-Fix: chunked Konvertierung (verhindert Stack Overflow bei großen Fotos)
+- ✅ **Einnahmen-Bug gefixt**: Orders ohne `payment_method` wurden mit 0 ₺ gewertet
+  - `closeOrder()` prüft jetzt ob Zahlungsart gewählt, speichert sie beim Abschließen
+  - 26 historische Orders (payment_method=null) auf `cash` gesetzt
+- ✅ Telegram-Benachrichtigungen: Cron-Job auf cron-job.org pausiert (Testphase)
+
+## Letzte Änderungen (08.06.2026) — früher
 - ✅ Service/OrderClient: "Aufs Haus" für einzelne Einheiten bei qty > 1 (Stepper − 🎁n +)
   - `onTheHouse` war `Set<string>`, jetzt `Record<string, number>` (Anzahl gratis pro Item)
   - Beim Speichern: bei teilweise gratis → 2 DB-Zeilen (eine on_the_house=true, eine false)
@@ -42,6 +58,7 @@
 - Vercel Deploy: `il-piccolo-natalie.vercel.app`
 - Root Directory in Vercel: leer (git init in `webapp/` Unterordner)
 - **WICHTIG**: `proxy.ts` statt `middleware.ts` (Next.js 16 Breaking Change)
+- Claude API: Anthropic (Sonnet 4.6 für scan-receipt), Secret: `ANTHROPIC_API_KEY` in Supabase
 
 ---
 
@@ -71,6 +88,7 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 - `/management/uebersicht` — Bestellungen bearbeiten
 - `/management/tagesabschluss` — Tagesabschluss
 - `/management/order/[id]` — Einzelbestellung bearbeiten
+- `/management/ausgaben` — Einkaufspreise (Produktmatrix + Scan) ✅ neu
 
 ### Küchen-Bereich
 - `/kueche` — User-Auswahl (Natalie / Vedat / Rakim, kein Passwort)
@@ -94,6 +112,7 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 - `discount_percent`, `discount_amount` (fix ₺)
 - `payment_method`: card | cash | friends_card | schwarz_bar | schwarz
 - `guest_country`, `guest_source`, `guest_notes`
+- **Hinweis**: `payment_method` wird jetzt beim Abschließen erzwungen (seit 08.06.2026)
 
 #### `order_items`
 - `id`, `order_id`, `name`, `qty`, `unit_price`, `on_the_house`
@@ -103,6 +122,31 @@ Für Natalie, Vedat, Rakim — **kein Supabase Auth**, nur Name antippen (localS
 
 #### `phrases`
 - `id`, `category`, `german`, `turkish`, `pronunciation`, `sort_order`, `formality`
+
+### Ausgaben-Tabellen (RLS deaktiviert) *(neu 08.06.2026)*
+
+#### `purchase_products` — Produktkatalog
+- `id`, `name`, `category` (CHECK: molkerei|wurst|mehl|gemuese|getraenke|backen|verpackung|reinigung|sonstiges)
+- `unit` (CHECK: kg|g|Stk|L|ml|Pkg), `notes`, `active`, `created_at`
+- **Stand**: ~57 Produkte initial befüllt (Preise mit approx. Datum, Händler fehlt noch)
+
+#### `purchase_prices` — Preisverlauf
+- `id`, `product_id` (FK → purchase_products CASCADE DELETE)
+- `price_tl`, `quantity`, `unit`, `date`
+- `price_per_unit` (GENERATED: price_tl / quantity)
+- `source` (manual | scan), `receipt_ref`, `notes`, `created_at`
+- **Hinweis**: Preise werden neu geladen sobald `suppliers`+`receipts` Tabellen existieren
+
+### ⚠️ GEPLANT (noch nicht gebaut)
+
+#### `suppliers` — Händler
+- Geplante Felder: `id`, `name`, `category`, `notes`
+- Beispiele: Gemüsehändler, Coca-Cola, Metro, Online-Shop
+
+#### `receipts` — Rechnungen (mit Duplikat-Erkennung)
+- Geplante Felder: `id`, `supplier_id`, `ettn` (unique), `fatura_no`, `date`, `total_tl`, `scanned_at`, `notes`
+- ETTN = türkische E-Rechnung UUID (eindeutig, für Duplikat-Check)
+- Für Belege ohne ETTN: Hash des Bildinhalts
 
 ### Küchen-Tabellen (RLS deaktiviert)
 
@@ -228,7 +272,7 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 > ⚠️ Die Edge Function `check-timers` muss `warn_before_hours = -1` prüfen und das Item überspringen!
 
 ### Cron-Job
-- **cron-job.org** — alle 30 Minuten
+- **cron-job.org** — alle 30 Minuten — **aktuell PAUSIERT (Testphase)**
 - URL: `https://cpqnduisajwyotrmqhwh.supabase.co/functions/v1/check-timers`
 - Methode: POST, Body: `{}`
 - Header: Authorization Bearer (Anon Key) + Content-Type application/json
@@ -240,6 +284,15 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 - TELEGRAM_CHAT_VEDAT
 - TELEGRAM_CHAT_RAKIM
 - TELEGRAM_CHAT_NATALIE
+- ANTHROPIC_API_KEY (für scan-receipt Edge Function)
+
+---
+
+## Edge Functions (Supabase)
+| Function | Zweck | Deployed |
+|---|---|---|
+| `check-timers` | Telegram-Benachrichtigungen (Frische, Teig) | ✅ `--no-verify-jwt` |
+| `scan-receipt` | Kassenbeleg → Claude Vision → Produktliste | ✅ `--no-verify-jwt` |
 
 ---
 
@@ -258,11 +311,24 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 | — | kg_teig, anzahl_teiglinge Spalten | ✅ |
 | — | warn_before_hours Spalte | ✅ |
 | patch17_dough_boxes | kitchen_dough_boxes Tabelle | ✅ |
+| patch18_ausgaben | purchase_products + purchase_prices | ✅ (RLS manuell deaktiviert) |
+| **patch19_suppliers_receipts** | suppliers + receipts Tabellen (ETTN-Duplikat-Check) | 🔜 nächster Chat |
+
+---
+
+## Nächste Schritte (nächster Chat)
+1. **patch19**: `suppliers` + `receipts` Tabellen bauen
+2. **scan-receipt** Edge Function: ETTN + Fatura No extrahieren, Duplikat-Check
+3. **AusgabenClient**: Duplikat-Warnung UI + Händler-Auswahl beim Scan
+4. **purchase_prices**: alle bisherigen Preise löschen → Belege neu hochladen mit echtem Datum + Händler
+5. **Fixkosten-Seite**: noch keine Funktion (ausgegraut)
+6. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
+7. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
+8. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
 
 ---
 
 ## Bekannte offene Punkte
-- Ausgaben-Seite: noch keine Funktion (ausgegraut)
 - Fixkosten-Seite: noch keine Funktion (ausgegraut)
 - Burrata-Zähler (kommt später, Karte wird noch hochgeladen)
 - Einnahmen: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
