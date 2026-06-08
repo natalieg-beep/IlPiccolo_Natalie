@@ -285,7 +285,7 @@ export default function OrderClient({ table, existingOrder, backHref }: {
 
   // ── Render ───────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: '480px', margin: '0 auto', paddingBottom: '120px', background: '#F7F4F0', minHeight: '100dvh' }}>
+    <div style={{ maxWidth: '480px', margin: '0 auto', paddingBottom: 'calc(120px + 56px + env(safe-area-inset-bottom))', background: '#F7F4F0', minHeight: '100dvh' }}>
 
       {/* Header */}
       <div style={S.header}>
@@ -732,10 +732,10 @@ export default function OrderClient({ table, existingOrder, backHref }: {
       {/* Bottom Bar */}
       {totalCount > 0 && (
         <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
+          position: 'fixed', bottom: 'calc(56px + env(safe-area-inset-bottom))', left: 0, right: 0,
           background: '#FFFDF9', borderTop: `2px solid ${saved ? '#4CAF50' : '#B8882A'}`,
           padding: '12px 16px', display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', zIndex: 100,
+          justifyContent: 'space-between', zIndex: 1001,
           boxShadow: '0 -2px 12px rgba(0,0,0,0.08)',
           transition: 'border-color 0.3s',
         }}>
