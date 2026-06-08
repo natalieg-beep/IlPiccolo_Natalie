@@ -70,12 +70,12 @@ export default async function ManagementPage() {
     {
       label: 'Ausgaben',
       icon: '🧾',
-      desc: 'Belege · Wareneinstand (kommt bald)',
+      desc: 'Einkaufspreise · Belege scannen',
       href: '/management/ausgaben',
       stat: null,
       statLabel: null,
       highlight: false,
-      disabled: true,
+      disabled: false,
     },
     {
       label: 'Fixkosten',
