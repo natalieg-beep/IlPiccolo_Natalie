@@ -244,7 +244,7 @@ export default function OrderClient({ table, existingOrder, backHref }: {
 
   async function closeOrder() {
     if (!existingOrder?.id) return
-    if (!paymentMethod) {
+    if (!paymentMethod && !isPrivat) {
       alert('Bitte zuerst eine Zahlungsart auswählen.')
       return
     }
