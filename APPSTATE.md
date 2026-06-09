@@ -312,19 +312,38 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 | — | warn_before_hours Spalte | ✅ |
 | patch17_dough_boxes | kitchen_dough_boxes Tabelle | ✅ |
 | patch18_ausgaben | purchase_products + purchase_prices | ✅ (RLS manuell deaktiviert) |
-| **patch19_suppliers_receipts** | suppliers + receipts Tabellen (ETTN-Duplikat-Check) | 🔜 nächster Chat |
+| patch19_suppliers_receipts | suppliers (98 Händler) + receipts (ETTN-Duplikat-Check) | ✅ |
+| patch20_complete | expense_categories (19 Kat.) + expenses Tabelle | ✅ |
+| patch21_import_investitionen | 128 Einträge aus Investitionskosten.xlsx importiert | ✅ |
+| patch21b_fix_date | expenses.date nullable | ✅ |
+
+### Ausgaben-Datenbankstand (09.06.2026)
+- `suppliers`: 98 Händler
+- `expense_categories`: 19 Kategorien (laufend / einmalig / investition)
+- `expenses`: 130 Einträge (~3,6 Mio ₺ inkl. Miete)
+  - payment_type: offiziell / bar / schwarz ✅
+  - Amortisation: Miete über 24 Monate ✅
+  - Stopaj-Feld vorhanden ✅
+- `receipts`: Tabelle bereit, noch leer (Belege werden per Scan befüllt)
+- `scan-receipt` Edge Function: Dual-Modus (products / expense) mit ETTN-Duplikat-Check ✅
+
+### Kostenkonzept
+→ Siehe `KOSTENKONZEPT.md` für vollständige Dokumentation
 
 ---
 
-## Nächste Schritte (nächster Chat)
-1. **patch19**: `suppliers` + `receipts` Tabellen bauen
-2. **scan-receipt** Edge Function: ETTN + Fatura No extrahieren, Duplikat-Check
-3. **AusgabenClient**: Duplikat-Warnung UI + Händler-Auswahl beim Scan
-4. **purchase_prices**: alle bisherigen Preise löschen → Belege neu hochladen mit echtem Datum + Händler
-5. **Fixkosten-Seite**: noch keine Funktion (ausgegraut)
-6. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
-7. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
-8. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
+## Nächste Schritte
+1. **UI Ausgaben**: Tab "Investitionen & Fixkosten" in `/management/ausgaben` bauen
+   - Übersicht aller expenses nach Kategorie + Monat
+   - Manuell erfassen (mit Zahlungsart offiziell/bar/schwarz)
+   - Scan-Button für Belege (mode=expense, ETTN-Duplikat-Warnung)
+   - Amortisations-Ansicht (monatlicher Anteil)
+2. **purchase_prices**: alte Preise löschen → Belege neu hochladen mit echtem Datum + Händler
+3. **Laufende Kosten nacherfassen**: Gas, Strom, Wasser (Beträge noch offen)
+4. **Fixkosten-Seite**: noch keine Funktion (ausgegraut)
+5. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
+6. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
+7. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
 
 ---
 
@@ -333,3 +352,5 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 - Burrata-Zähler (kommt später, Karte wird noch hochgeladen)
 - Einnahmen: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
 - Boxen 7–10 kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
+- Laufende Kosten (Gas, Strom, Wasser) noch nicht erfasst — Beträge offen
+- purchase_prices: bisherige Preise noch ohne Händler + echtes Datum → neu einlesen
