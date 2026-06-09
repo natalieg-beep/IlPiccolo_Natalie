@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -219,10 +218,8 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
 
   return (
     <div style={{ minHeight: '100dvh', background: '#F7F4F0', maxWidth: '600px', margin: '0 auto' }}>
-      {/* Header */}
-      <div style={S.header}>
-        <Link href="/management" style={{ textDecoration: 'none', color: '#B8882A', fontSize: '20px' }}>←</Link>
-        <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700, flex: 1 }}>Einkaufspreise</h1>
+      {/* Sub-Header für Einkaufspreise */}
+      <div style={{ ...S.header, justifyContent: 'flex-end' }}>
         <button onClick={() => setView('scan')} style={S.btn('#1565C0')}>📷 Scan</button>
         <button onClick={() => { setManualPrice(p => ({ ...p, date: new Date().toISOString().slice(0,10) })); setView('manual_price') }} style={{ ...S.btn('#2E7D32'), marginLeft: '6px' }}>+ Preis</button>
         <button onClick={() => setView('manual_product')} style={{ ...S.btn('#555', '#FFF'), marginLeft: '6px', fontSize: '13px' }}>+ Produkt</button>

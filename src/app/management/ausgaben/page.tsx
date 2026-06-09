@@ -1,24 +1,30 @@
 import { createClient } from '@/lib/supabase/server'
-import AusgabenClient from './AusgabenClient'
+import AusgabenPage from './AusgabenPageClient'
 
-export default async function AusgabenPage() {
+export default async function Page() {
   const supabase = await createClient()
 
-  // Alle aktiven Produkte + letzten Preis per Subquery
-  const { data: products } = await supabase
-    .from('purchase_products')
-    .select('*')
-    .eq('active', true)
-    .order('category')
-    .order('name')
+  const [
+    { data: products },
+    { data: allPrices },
+    { data: categories },
+    { data: expenses },
+    { data: suppliers },
+  ] = await Promise.all([
+    supabase.from('purchase_products').select('*').eq('active', true).order('category').order('name'),
+    supabase.from('purchase_prices').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }),
+    supabase.from('expense_categories').select('*').eq('active', true).order('sort'),
+    supabase.from('expenses').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }),
+    supabase.from('suppliers').select('id, name, category').eq('active', true).order('name'),
+  ])
 
-  // Letzter Preis pro Produkt
-  const { data: latestPrices } = await supabase
-    .from('purchase_prices')
-    .select('*')
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false })
-
-  // Preisverlauf (letzte 10 Einträge pro Produkt) für Detailansicht
-  return <AusgabenClient products={products ?? []} allPrices={latestPrices ?? []} />
+  return (
+    <AusgabenPage
+      products={products ?? []}
+      allPrices={allPrices ?? []}
+      categories={categories ?? []}
+      expenses={expenses ?? []}
+      suppliers={suppliers ?? []}
+    />
+  )
 }
