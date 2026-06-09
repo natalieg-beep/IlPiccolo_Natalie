@@ -9,206 +9,242 @@ Alle Kosten des Restaurants vollständig erfassen → daraus Preise richtig kalk
 
 ---
 
-## Was wir erfassen wollen
+## Entschiedene Design-Parameter
 
-### 1. Laufende Produktkosten (bereits teilweise gebaut)
-Einkaufspreise für Zutaten: Mehl, Käse, Wurst, Gemüse, Getränke, Verpackung etc.
-→ Preisverlauf über Zeit, Preisvergleich zwischen Händlern
-
-### 2. Fixkosten / Betriebskosten (noch nicht gebaut)
-Monatlich wiederkehrend oder einmalig:
-- Miete
-- Strom, Gas, Wasser
-- Steuerberater, Buchhaltung
-- Versicherungen
-- Kassensystem, Software-Abos
-- Personalkosten (wenn relevant)
-
-### 3. Investitionen & Umbaukosten (noch nicht gebaut)
-Einmalige größere Ausgaben seit April 2026:
-- Umbau / Renovierung
-- Geräte (Ofen, Kühlschrank, Kasse …)
-- Erstausstattung
-- Sonstiges (Deko, Schilder, …)
+| Thema | Entscheidung |
+|---|---|
+| **KDV (MwSt)** | Immer miterfassen: 1% / 10% / 20% |
+| **Stopaj** | Eigenes Feld, Fälligkeit Jahresende |
+| **Schwarzzahlungen** | Explizit erfasst (wie bei Einnahmen), kein Verstecken |
+| **Zahlungsart** | `offiziell` / `bar` / `schwarz` |
+| **Miete** | 1,2 Mio ₺ einmalig für 2 Jahre → amortisiert über 24 Monate = **50.000 ₺/Monat** |
+| **3. Mietjahr** | Kommt später → Laufzeit-Felder vorbereiten |
+| **Amortisation** | Beide Sichten: monatlicher Anteil (Kalkulation) + Gesamtbilanz |
+| **Händler-Kategorien** | Flexibel — eigene Tabelle, in App pflegbar |
+| **Fehlende Belege** | Manuell erfassbar ohne Scan-Pflicht, aber Hinweis "kein Beleg" |
 
 ---
 
-## Aktuelle Datenbankstruktur
+## Was wir erfassen wollen
 
-### `purchase_products` — Produktkatalog
-```
+### 1. Laufende Produktkosten (patch18, teilweise gebaut)
+Einkaufspreise für Zutaten: Mehl, Käse, Wurst, Gemüse, Getränke, Verpackung etc.
+→ Preisverlauf über Zeit, Preisvergleich zwischen Händlern
+→ **Datenquelle**: Preiskalkulation_v5.xlsx (56 Produkte bereits gepflegt)
+
+### 2. Betriebskosten / Fixkosten
+Monatlich wiederkehrend:
+- Miete (amortisiert: 50.000 ₺/Monat aus 1,2 Mio für 2 Jahre)
+- Strom, Gas, Wasser (noch leer — nacherfassen)
+- TürkTelekom: 1.102,25 ₺/Monat (⚠️ Mai doppelt bezahlt!)
+- Steuerberater / Muhasebe
+- Kassensystem, Software
+
+### 3. Investitionen & Einmalkosten (seit April 2026)
+→ **Datenquelle**: Investitionskosten.xlsx (146 Zeilen, bereits sehr vollständig)
+- Miete + Ablösesumme (Kaution)
+- Architekt, Notar, Patent
+- Umbau / Renovierung (Hakbilenler, diverse Handwerker)
+- Geräte (Ofen, Kühlschrank, Kasse, Kaffeemaschine etc.)
+- Erstausstattung, Deko, Schilder
+- Flüge, Transport (Serkan etc.)
+- Schwarzzahlungen — explizit erfasst, `payment_type = 'schwarz'`
+
+### 4. Rezepturen (bereits in Excel, später importieren)
+→ Preiskalkulation_v5.xlsx: Wareneinsatz pro Pizza bereits berechnet
+→ Wird später als Rezept-Modul in DB übernommen
+
+---
+
+## Datenbankstruktur (vollständig)
+
+### Bereits vorhanden (patch18)
+
+#### `purchase_products` — Produktkatalog
+```sql
 id, name, category, unit, notes, active, created_at
 ```
 Kategorien: molkerei | wurst | mehl | gemuese | getraenke | backen | verpackung | reinigung | sonstiges
-Einheiten: kg | g | Stk | L | ml | Pkg
 
-**Flexibilität:** ✅ gut — Kategorien und Einheiten könnten bei Bedarf per CHECK-Änderung erweitert werden.
-
-### `purchase_prices` — Preisverlauf
-```
-id, product_id (FK), price_tl, quantity, unit, price_per_unit (GENERATED), 
+#### `purchase_prices` — Preisverlauf
+```sql
+id, product_id (FK), price_tl, quantity, unit, price_per_unit (GENERATED),
 date, source (manual|scan), receipt_ref, notes, created_at
 ```
-- `price_per_unit` wird automatisch berechnet (price_tl / quantity)
-- `receipt_ref` ist bisher nur ein Text-Feld — noch keine echte Verknüpfung zu Belegen
-
-**Was fehlt noch:**
-- `supplier_id` → Händler-Verknüpfung (geplant: patch19)
-- Echte `receipt_id` → Verknüpfung zum gescannten Beleg
-- Duplikat-Erkennung (ETTN / Beleg-Hash)
-
-### Geplant (patch19): `suppliers` + `receipts`
-```
-suppliers: id, name, category, notes
-receipts:  id, supplier_id, ettn (UNIQUE), fatura_no, date, total_tl, scanned_at, notes
-```
-→ ETTN = türkische E-Rechnung UUID (eindeutig)
-→ Belege ohne ETTN: Hash des Bildinhalts als Duplikat-Schutz
+⚠️ Noch kein `supplier_id` → kommt mit patch19
 
 ---
 
-## Geplante neue Tabellen
+### patch19 (nächster Schritt)
 
-### `expense_categories` — Kostenkategorien (übergreifend)
+#### `suppliers` — Händler
 ```sql
 id          uuid PRIMARY KEY
-name        text NOT NULL         -- z.B. "Miete", "Strom", "Umbau Terrasse"
-type        text NOT NULL         -- 'laufend' | 'einmalig' | 'investition'
-icon        text                  -- Emoji
+name        text NOT NULL           -- z.B. "Atılım Şengida", "BIM", "Metro"
+category    text                    -- 'lieferant' | 'handwerker' | 'behoerde' | 'sonstiges'
+notes       text
+created_at  timestamptz DEFAULT now()
+```
+→ Kategorie flexibel erweiterbar (kein ENUM, nur text mit Vorschlägen in UI)
+
+#### `receipts` — Belege mit Duplikat-Erkennung
+```sql
+id          uuid PRIMARY KEY
+supplier_id uuid FK → suppliers (nullable)
+ettn        text UNIQUE             -- türk. E-Rechnung UUID (e-fatura/e-arşiv)
+fatura_no   text                    -- Rechnungsnummer
+image_hash  text UNIQUE             -- SHA-256 des Bildes (Fallback ohne ETTN)
+date        date
+total_tl    numeric(10,2)
+scanned_at  timestamptz DEFAULT now()
+source      text  -- 'manual' | 'foto' | 'pdf'
 notes       text
 ```
 
-### `expenses` — Einzelne Ausgaben / Rechnungen
+---
+
+### patch20 — Ausgaben & Investitionen
+
+#### `expense_categories` — Kostenkategorien (in App pflegbar)
 ```sql
-id            uuid PRIMARY KEY
-category_id   uuid FK → expense_categories
-receipt_id    uuid FK → receipts (nullable, wenn gescannt)
-date          date NOT NULL
-amount_tl     numeric(10,2) NOT NULL
-vat_rate      numeric(5,2)        -- KDV-Satz in %, z.B. 18.00
-amount_net    numeric(10,2)       -- Netto (berechnet oder manuell)
-description   text
-source        text  -- 'manual' | 'scan' | 'pdf'
-supplier_id   uuid FK → suppliers (nullable)
-period_from   date                -- für Miete: Monat-von
-period_to     date                -- für Miete: Monat-bis
-notes         text
-created_at    timestamptz DEFAULT now()
+id      uuid PRIMARY KEY
+name    text NOT NULL       -- z.B. "Miete", "Strom", "Umbau Terrasse", "Geräte"
+type    text NOT NULL       -- 'laufend' | 'einmalig' | 'investition'
+icon    text                -- Emoji für UI
+sort    integer DEFAULT 0
 ```
 
-**Warum so flexibel?**
-- `receipt_id` nullable → manuelle Einträge ohne Scan möglich
-- `period_from/to` → Miete und andere Periodenkosten korrekt zuordnen
-- `vat_rate` → KDV (türk. MwSt) korrekt trennen für Buchhaltung
-- `source` → unterscheiden ob manuell, Foto-Scan oder PDF
+#### `expenses` — Einzelne Ausgaben
+```sql
+id              uuid PRIMARY KEY
+category_id     uuid FK → expense_categories
+receipt_id      uuid FK → receipts (nullable — kein Scan nötig)
+supplier_id     uuid FK → suppliers (nullable)
+date            date NOT NULL
+amount_net      numeric(10,2)       -- Netto
+vat_rate        numeric(5,2)        -- KDV-Satz: 1 | 10 | 20
+vat_amount      numeric(10,2)       -- KDV-Betrag
+stopaj_amount   numeric(10,2)       -- Stopaj (Quellensteuer, Jahresende fällig)
+amount_gross    numeric(10,2)       -- Brutto (= net + KDV + Stopaj)
+payment_type    text NOT NULL       -- 'offiziell' | 'bar' | 'schwarz'
+payment_method  text                -- 'überweisung' | 'karte' | 'nakit'
+description     text
+has_receipt     boolean DEFAULT false   -- explizit: Beleg vorhanden ja/nein
+source          text  -- 'manual' | 'foto' | 'pdf' | 'import'
+-- Für Periodenkosten (Miete, Strom etc.)
+period_from     date
+period_to       date
+-- Für Amortisation
+amort_months    integer             -- über wie viele Monate verteilen?
+amort_start     date                -- ab wann amortisieren?
+notes           text
+created_at      timestamptz DEFAULT now()
+```
 
 ---
 
-## Duplikat-Erkennung
+## Amortisationslogik
 
-### Für türkische E-Rechnungen (e-fatura / e-arşiv)
-- Haben immer eine **ETTN** (UUID, z.B. `3F2A1B9C-...`)
-- ETTN in `receipts.ettn` als `UNIQUE` Constraint
-- Beim Scan: Claude extrahiert ETTN → DB-Check → Warnung wenn schon vorhanden
+### Miete (Sonderfall)
+- Gezahlt: 1.200.000 ₺ einmalig für 2 Jahre (April 2026 – März 2028)
+- `amort_months = 24`, `amort_start = 2026-04-01`
+- Monatlicher Anteil: **50.000 ₺/Monat**
+- 3. Jahr: neuer Eintrag wenn fällig → `amort_start = 2028-04-01`
 
-### Für normale Kassenbelege / Fotos
-- Kein ETTN vorhanden
-- Fallback: **SHA-256 Hash des Bildinhalts** in `receipts.image_hash`
-- Beim Upload: Hash berechnen → DB-Check → Warnung wenn identisches Bild
+### Investitionen (Umbau etc.)
+- Ablösesumme 1,5 Mio ₺: `amort_months = 34` (Jun 2026 – Apr 2029)
+- Umbaukosten gesamt: `amort_months = 34`
+- Monatlicher Anteil = `amount_gross / amort_months`
 
-### Für PDFs
-- Text-Hash der ersten N Zeichen (Betrag + Datum + Händlername)
-- Zusätzlich: `fatura_no` (Rechnungsnummer) als Soft-Check
+### Einmalkosten
+- `amort_months = 1` (fließt nur in dem Monat ein)
 
----
-
-## Scan-Funktionen (Claude Vision)
-
-### Bestehend: `scan-receipt` Edge Function
-→ Erkennt Produktlisten (Zutaten-Einkauf), gibt strukturierte Artikel zurück
-
-### Geplant: Erweiterung für Ausgaben-Belege
-Claude soll zusätzlich erkennen:
-- **ETTN** (falls vorhanden, immer in e-fatura)
-- **Fatura No** / Rechnungsnummer
-- **Händlername**
-- **Gesamtbetrag**
-- **KDV-Betrag** (MwSt)
-- **Datum**
-- **Belegart** (e-fatura | e-arşiv | Kassenbon | Handrechnung)
-
----
-
-## Kostenbereiche & Beispiele
-
-### Laufende Kosten (monatlich)
-| Kategorie | Beispiel | Typ |
-|---|---|---|
-| Miete | Monatsmiete April | laufend |
-| Strom | Fatura April | laufend |
-| Gas | Tüpgaz Rechnung | laufend |
-| Wasser | Su faturası | laufend |
-| Steuerberater | Muhasebe | laufend |
-| Kassensystem | Yazarkasa | laufend |
-
-### Investitionen (einmalig seit April)
-| Kategorie | Beispiel | Typ |
-|---|---|---|
-| Umbau | Terrasse, Küche | investition |
-| Geräte | Ofen, Kühlschrank | investition |
-| Erstausstattung | Geschirr, Möbel | investition |
-| Werbung | Logo, Schilder | investition |
-| Sonstiges | Diverse Anschaffungen | einmalig |
-
-### Produktkosten (bereits erfasst)
-→ via `purchase_products` + `purchase_prices` (patch18)
+### Gesamtbilanz-Sicht
+- Alle Ausgaben ohne Amortisation → realer Cash-Abfluss
+- Monatskalkulations-Sicht → amortisierte Werte
 
 ---
 
 ## Preiskalkulation (Ziel)
 
-Wenn alle Daten vorhanden, kann man berechnen:
-
 ```
-Wareneinsatz pro Pizza = Summe(Zutaten × Einkaufspreis)
-Fixkosten/Pizza        = Monatliche Fixkosten / Pizzen pro Monat
-Gesamtkosten/Pizza     = Wareneinsatz + Fixkosten-Anteil
-Zielpreis              = Gesamtkosten × (1 + Gewinnmarge%)
+Wareneinsatz/Pizza     = Σ (Zutat × Einkaufspreis) [aus purchase_prices]
+Fixkosten/Pizza        = Monatliche Fixkosten ÷ Pizzen/Monat [aus orders]
+Invest-Anteil/Pizza    = Σ (amort. Invest/Monat) ÷ Pizzen/Monat
+─────────────────────────────────────────────────────────────
+Gesamtkosten/Pizza     = Wareneinsatz + Fixkosten + Invest-Anteil
+Zielpreis              = Gesamtkosten × (1 + Zielgewinn%)
 ```
 
 **Voraussetzungen:**
-1. ✅ Einkaufspreise pro Zutat (patch18, teilweise)
-2. 🔜 Rezepte / Mengenkalkulation pro Pizza-Typ
-3. 🔜 Fixkosten vollständig erfasst
-4. 🔜 Investitionen (auf Monate amortisiert)
-5. 🔜 Durchschnittliche Pizzen/Monat (aus Einnahmen-Daten vorhanden!)
+| # | Was | Status |
+|---|---|---|
+| 1 | Einkaufspreise pro Zutat | ✅ in Excel, 🔜 in DB |
+| 2 | Rezepturen / Mengen pro Pizza | ✅ in Excel, 🔜 in DB |
+| 3 | Fixkosten vollständig | ⚠️ teilweise (Gas/Strom/Wasser fehlen noch) |
+| 4 | Investitionen vollständig | ✅ 146 Einträge in Excel |
+| 5 | Pizzen/Monat Ø | ✅ aus Einnahmen-Daten berechenbar |
+| 6 | Stopaj-Schätzung Jahresende | 🔜 erfassen |
+
+---
+
+## Schwarzzahlungen — Handhabung
+
+Analog zu den Einnahmen (dort: `payment_method = 'schwarz'`):
+- `payment_type = 'schwarz'` ist ein expliziter Wert — kein Verstecken
+- In der UI: dezent gekennzeichnet, nicht auffällig
+- In der Kalkulation: voll einbezogen (es sind echte Kosten)
+- In Exporten für Steuerberater: Optional ausblendbar
+
+---
+
+## Vollständigkeits-Check (gegen Konto_Abgleich_v2)
+
+Die 99 Transaktionen aus dem Kontoauszug (08.04.–21.05.2026) dienen als Referenz:
+- Abgleich: Jede Kontoabbuchung soll einem `expense`-Eintrag zugeordnet sein
+- Schwarzzahlungen (Nakit/bar) sind nicht im Konto → separat manuell erfassen
+- Status-Felder aus dem Abgleich: MATCH | MATCH (Teil) | BETRAG WEICHT AB | NICHT ZUGEORDNET
+
+⚠️ **Offene To-Dos aus Konto-Abgleich:**
+- TürkTelekom 18.05.: doppelt bezahlt (2× 1.102,25 ₺) → Rückbuchung klären
+- Einige Positionen mit "BETRAG WEICHT AB" → Differenzen dokumentieren
+
+---
+
+## Händler (aus Daten bekannt)
+
+| Händler | Kategorie | Art |
+|---|---|---|
+| Atılım Şengida | Lebensmittel-Lieferant | laufend |
+| Royal Bounty Gıda | Lebensmittel-Lieferant | laufend |
+| WIO Gayrimenkul | Lebensmittel-Lieferant (Lavazza) | laufend |
+| BIM | Supermarkt | laufend |
+| Muhtar | Supermarkt/Lokal | laufend |
+| Hakbilenler | Handwerker (Umbau) | Investition |
+| Koru Patent | Beratung (Patent/Marke) | Investition |
+| Architekt (Halk Bankası) | Architekt | Investition |
+| Notar | Behörde | Investition |
+| TürkTelekom | Telekommunikation | laufend |
+| Tüpgaz | Gas | laufend |
+| … | … | … |
 
 ---
 
 ## Nächste Schritte (Reihenfolge)
 
-### Kurzfristig
-1. **patch19**: `suppliers` + `receipts` Tabellen (ETTN-Duplikat-Check)
-2. **scan-receipt** erweitern: ETTN, Händler, Gesamtbetrag extrahieren
-3. **UI Ausgaben**: Händler-Auswahl + Duplikat-Warnung
+### Kurzfristig (nächste Chats)
+1. **patch19**: `suppliers` + `receipts` Tabellen + ETTN-Duplikat in scan-receipt
+2. **patch20**: `expense_categories` + `expenses` Tabellen
+3. **Import-Script**: Investitionskosten.xlsx → `expenses` Tabelle (146 Einträge)
+4. **Import-Script**: Preiskalkulation_v5.xlsx → `purchase_products` + `purchase_prices`
+5. **UI**: Ausgaben-Seite um Tab "Fixkosten & Investitionen" erweitern
+6. **Laufende Kosten nacherfassen**: Gas, Strom, Wasser (Beträge noch offen)
 
-### Mittelfristig (nächste Phase)
-4. **`expense_categories`** + **`expenses`** Tabellen anlegen
-5. **Ausgaben-UI** um Tab "Fixkosten & Investitionen" erweitern
-6. April-Belege (Umbau, Miete, Investitionen) nacherfassen
-7. Monatliche Fixkosten-Übersicht
+### Mittelfristig
+7. **Vollständigkeits-Check UI**: Abgleich gegen Konto-Abgleich-Daten
+8. **Amortisations-Ansicht**: monatlicher Kostenanteil pro Periode
+9. **Rezept-Modul**: Zutatenlisten aus Excel importieren
 
 ### Langfristig
-8. **Rezept-Modul**: Zutatenliste pro Pizza mit Mengenangaben
-9. **Kalkulations-Ansicht**: Kosten pro Pizza automatisch berechnen
-10. **Preisvorschlag**: Basierend auf Kosten + Zielgewinn
-
----
-
-## Offene Fragen / Entscheidungen
-
-- **KDV (MwSt)**: Erfassen wir Brutto oder Netto? → Empfehlung: Brutto erfassen, KDV-Satz separat
-- **Amortisation Investitionen**: Über wie viele Monate? → z.B. Umbau über 12–24 Monate
-- **Händler-Kategorien**: Lieferant | Handwerker | Behörde | Sonstiges?
-- **Rechnungen ohne Foto**: Nur manuell oder immer Scan-Pflicht?
-- **April-Belege**: Hast du die Fotos/PDFs bereits gesammelt?
+10. **Kalkulations-Seite**: Kosten/Pizza automatisch berechnen + Preisvorschlag
+11. **Stopaj-Jahresübersicht**: Was wird Ende 2026 fällig?
