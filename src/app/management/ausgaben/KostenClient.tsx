@@ -88,7 +88,7 @@ export default function KostenClient({
 
   const [expenses, setExpenses]     = useState<Expense[]>(initialExpenses)
   const [view, setView]             = useState<'uebersicht' | 'neu' | 'scan'>('uebersicht')
-  const [viewMode, setViewMode]     = useState<'monatlich' | 'gesamt'>('monatlich')
+  const [viewMode, setViewMode]     = useState<'monatlich' | 'gesamt'>('gesamt')
   const [selMonth, setSelMonth]     = useState(new Date().toISOString().slice(0, 7))
   const [expandedCat, setExpandedCat] = useState<string | null>(null)
   const [filterType, setFilterType] = useState<'alle' | 'laufend' | 'einmalig' | 'investition'>('alle')
@@ -311,7 +311,7 @@ export default function KostenClient({
         {activeCats.map(cat => {
           const exps = expensesByCat(cat.id)
           const total = catTotal(cat.id)
-          if (total === 0 && viewMode === 'monatlich') return null
+          if (total === 0) return null
           const isOpen = expandedCat === cat.id
           return (
             <div key={cat.id} style={S.card}>
