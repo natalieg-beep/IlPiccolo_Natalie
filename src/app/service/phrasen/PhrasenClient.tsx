@@ -127,7 +127,7 @@ export default function PhrasenClient({ phrases }: { phrases: Phrase[] }) {
   }
 
   return (
-    <div style={{ maxWidth: '480px', margin: '0 auto', background: '#F7F4F0', minHeight: '100dvh', paddingBottom: '32px' }}>
+    <div style={{ maxWidth: '480px', margin: '0 auto', background: '#F7F4F0', minHeight: '100dvh', paddingBottom: 'calc(32px + 56px + env(safe-area-inset-bottom))' }}>
 
       {/* ── Sticky Header ── */}
       <div style={{ background: '#FFFDF9', borderBottom: '1px solid #E5E0D8', position: 'sticky', top: 0, zIndex: 50, boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>

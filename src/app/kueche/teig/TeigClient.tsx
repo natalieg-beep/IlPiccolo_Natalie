@@ -132,7 +132,7 @@ export default function TeigClient() {
   }
 
   return (
-    <div style={{ paddingBottom: '60px', background: '#F0F4F0', minHeight: '100dvh' }}>
+    <div style={{ paddingBottom: 'calc(116px + env(safe-area-inset-bottom))', background: '#F0F4F0', minHeight: '100dvh' }}>
 
       <div style={{ background: '#1B3A1B', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
         <div>

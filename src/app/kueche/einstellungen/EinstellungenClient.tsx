@@ -91,7 +91,7 @@ export default function EinstellungenClient() {
   }
 
   return (
-    <div style={{ paddingBottom: '40px' }}>
+    <div style={{ paddingBottom: 'calc(96px + env(safe-area-inset-bottom))' }}>
       <div style={{ background: '#1B3A1B', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ color: '#FFF', fontSize: '18px', fontWeight: '800', margin: 0 }}>⚙️ Benachrichtigungen</h1>

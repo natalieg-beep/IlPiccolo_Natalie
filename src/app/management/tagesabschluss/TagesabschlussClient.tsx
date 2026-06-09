@@ -227,7 +227,7 @@ export default function TagesabschlussClient({
         </div>
       </div>
 
-      <div style={{ padding: '16px', maxWidth: '600px', margin: '0 auto', paddingBottom: '100px' }}>
+      <div style={{ padding: '16px', maxWidth: '600px', margin: '0 auto', paddingBottom: 'calc(160px + env(safe-area-inset-bottom))' }}>
 
         {/* App-Überblick (read-only) */}
         <div style={{ background: '#FFF8EC', border: '1px solid #E8C878', borderRadius: '12px', padding: '12px 14px', marginBottom: '16px' }}>
@@ -422,7 +422,7 @@ export default function TagesabschlussClient({
       </div>
 
       {/* Bottom Save Bar */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#FFFDF9', borderTop: `2px solid ${saved ? '#4CAF50' : '#B8882A'}`, padding: '12px 16px', zIndex: 100, boxShadow: '0 -2px 12px rgba(0,0,0,0.08)', transition: 'border-color 0.3s' }}>
+      <div style={{ position: 'fixed', bottom: 'calc(56px + env(safe-area-inset-bottom))', left: 0, right: 0, background: '#FFFDF9', borderTop: `2px solid ${saved ? '#4CAF50' : '#B8882A'}`, padding: '12px 16px', zIndex: 1001, boxShadow: '0 -2px 12px rgba(0,0,0,0.08)', transition: 'border-color 0.3s' }}>
         <button onClick={save} style={{
           width: '100%', background: saved ? '#4CAF50' : '#B8882A',
           color: '#FFFFFF', border: 'none', borderRadius: '10px',

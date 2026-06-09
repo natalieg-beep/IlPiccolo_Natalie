@@ -137,7 +137,7 @@ export default function HomeClient() {
   if (!user) return null
 
   return (
-    <div style={{ paddingBottom: '40px' }}>
+    <div style={{ paddingBottom: 'calc(96px + env(safe-area-inset-bottom))' }}>
       {/* Header */}
       <div style={{ background: '#1B3A1B', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>

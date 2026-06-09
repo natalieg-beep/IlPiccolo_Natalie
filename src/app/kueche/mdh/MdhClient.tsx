@@ -82,7 +82,7 @@ export default function MdhClient() {
   })).filter(g => g.items.length > 0)
 
   return (
-    <div style={{ paddingBottom: '40px' }}>
+    <div style={{ paddingBottom: 'calc(96px + env(safe-area-inset-bottom))' }}>
       <div style={{ background: '#1B3A1B', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ color: '#FFFFFF', fontSize: '18px', fontWeight: '800', margin: 0 }}>📦 Mindesthaltbarkeit</h1>

@@ -58,7 +58,7 @@ export default function KasseClient({
   const cfg = TYPE_CONFIG
 
   return (
-    <div style={{ maxWidth: '480px', margin: '0 auto', background: '#F7F4F0', minHeight: '100dvh', paddingBottom: '32px' }}>
+    <div style={{ maxWidth: '480px', margin: '0 auto', background: '#F7F4F0', minHeight: '100dvh', paddingBottom: 'calc(32px + 56px + env(safe-area-inset-bottom))' }}>
 
       {/* Header */}
       <div style={{ background: '#FFFDF9', borderBottom: '1px solid #E5E0D8', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
