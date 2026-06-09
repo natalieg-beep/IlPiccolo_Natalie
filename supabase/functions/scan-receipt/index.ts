@@ -1,13 +1,17 @@
 // Supabase Edge Function: scan-receipt
-// Nimmt ein Base64-Bild oder Text-Inhalt, schickt es an Claude Vision,
-// gibt strukturierte Produktliste zurück (noch nicht gespeichert — UI bestätigt zuerst)
+// Zwei Modi:
+//   mode=products (default) → Produktliste aus Einkaufsbeleg
+//   mode=expense            → Belegkopf (ETTN, Händler, Betrag, KDV, Datum) + Duplikat-Check
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
 interface ScanRequest {
-  image_base64?: string  // base64-kodiertes Bild (JPEG/PNG/WebP/PDF)
+  image_base64?: string
   image_type?: string    // 'image/jpeg' | 'image/png' | 'application/pdf'
-  text?: string          // alternativ: reiner Text aus PDF copy-paste
+  text?: string
+  mode?: 'products' | 'expense'   // default: 'products'
 }
 
 interface ExtractedItem {
@@ -19,7 +23,21 @@ interface ExtractedItem {
   notes: string
 }
 
-const SYSTEM_PROMPT = `Du bist ein Assistent, der türkische Einkaufsbelege und Rechnungen liest.
+interface ExtractedExpense {
+  ettn: string | null           // E-Rechnung UUID falls vorhanden
+  fatura_no: string | null      // Rechnungsnummer
+  supplier_name: string | null  // Händlername
+  date: string | null           // ISO date YYYY-MM-DD
+  total_tl: number | null       // Gesamtbetrag
+  vat_amount: number | null     // KDV-Betrag
+  vat_rate: number | null       // KDV-Satz: 1 | 10 | 20
+  receipt_type: string | null   // 'e-fatura' | 'e-arsiv' | 'kassenbon' | 'handrechnung'
+  notes: string
+}
+
+// ── Prompts ───────────────────────────────────────────────────────────────────
+
+const PRODUCTS_PROMPT = `Du bist ein Assistent, der türkische Einkaufsbelege und Rechnungen liest.
 Extrahiere alle Produkte mit Preis, Menge und Einheit.
 Antworte NUR mit einem JSON-Array, kein Markdown, kein sonstiger Text.
 
@@ -40,15 +58,42 @@ Regeln:
 - Ignoriere: Summen, MwSt, Rabatte, Zahlungsinfos
 - Sortiere nach Kategorie`
 
+const EXPENSE_PROMPT = `Du bist ein Assistent, der türkische Rechnungen und Belege liest.
+Extrahiere die Kopfdaten des Belegs.
+Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
+
+{
+  "ettn": "<ETTN UUID falls vorhanden, z.B. 3F2A1B9C-... — nur bei e-fatura/e-arşiv, sonst null>",
+  "fatura_no": "<Rechnungsnummer falls vorhanden, sonst null>",
+  "supplier_name": "<Name des Ausstellers / Händlers, sonst null>",
+  "date": "<Datum als YYYY-MM-DD, sonst null>",
+  "total_tl": <Gesamtbetrag in TL als Zahl, sonst null>,
+  "vat_amount": <KDV-Betrag in TL als Zahl, sonst null>,
+  "vat_rate": <KDV-Satz als Zahl: 1 oder 10 oder 20, sonst null>,
+  "receipt_type": <"e-fatura" | "e-arsiv" | "kassenbon" | "handrechnung">,
+  "notes": "<kurze Auffälligkeit wenn relevant, sonst leerer String>"
+}
+
+Hinweise:
+- ETTN steht auf e-fatura/e-arşiv Belegen als UUID (Format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX)
+- Bei normalen Kassenbons: ettn = null, fatura_no = Bon-Nummer falls sichtbar
+- KDV-Satz: In der Türkei gibt es 1%, 10% und 20%
+- Gesamtbetrag: Der finale zu zahlende Betrag (TOPLAM oder GENEL TOPLAM)`
+
+// ── Handler ───────────────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
+    return new Response(null, {
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' },
+    })
   }
 
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!anthropicKey) return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not set' }), { status: 500 })
 
   const body: ScanRequest = await req.json()
+  const mode = body.mode ?? 'products'
 
   // Claude-Nachricht aufbauen
   type ContentBlock = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
@@ -57,19 +102,26 @@ Deno.serve(async (req) => {
   if (body.image_base64) {
     content.push({
       type: 'image',
-      source: {
-        type: 'base64',
-        media_type: (body.image_type || 'image/jpeg') as string,
-        data: body.image_base64,
-      },
+      source: { type: 'base64', media_type: (body.image_type || 'image/jpeg') as string, data: body.image_base64 },
     })
-    content.push({ type: 'text', text: 'Lies diesen Kassenbeleg / diese Rechnung und extrahiere alle Produkte mit Preisen.' })
+    content.push({
+      type: 'text',
+      text: mode === 'expense'
+        ? 'Lies diese Rechnung / diesen Beleg und extrahiere die Kopfdaten.'
+        : 'Lies diesen Kassenbeleg und extrahiere alle Produkte mit Preisen.',
+    })
   } else if (body.text) {
-    content.push({ type: 'text', text: `Lies diesen Belegtext und extrahiere alle Produkte mit Preisen:\n\n${body.text}` })
+    content.push({
+      type: 'text',
+      text: mode === 'expense'
+        ? `Lies diesen Belegtext und extrahiere die Kopfdaten:\n\n${body.text}`
+        : `Lies diesen Belegtext und extrahiere alle Produkte mit Preisen:\n\n${body.text}`,
+    })
   } else {
     return new Response(JSON.stringify({ error: 'Kein Inhalt (image_base64 oder text erforderlich)' }), { status: 400 })
   }
 
+  // Claude aufrufen
   const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -80,7 +132,7 @@ Deno.serve(async (req) => {
     body: JSON.stringify({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
-      system: SYSTEM_PROMPT,
+      system: mode === 'expense' ? EXPENSE_PROMPT : PRODUCTS_PROMPT,
       messages: [{ role: 'user', content }],
     }),
   })
@@ -93,18 +145,65 @@ Deno.serve(async (req) => {
   const claudeData = await claudeRes.json()
   const rawText = claudeData.content?.[0]?.text ?? ''
 
-  let items: ExtractedItem[] = []
-  try {
-    items = JSON.parse(rawText)
-  } catch {
-    // Claude hat manchmal Markdown-Fences → strip
-    const match = rawText.match(/\[[\s\S]*\]/)
-    if (match) {
-      try { items = JSON.parse(match[0]) } catch { /* leer lassen */ }
+  // ── Modus: Produkte ────────────────────────────────────────────────────────
+  if (mode === 'products') {
+    let items: ExtractedItem[] = []
+    try {
+      items = JSON.parse(rawText)
+    } catch {
+      const match = rawText.match(/\[[\s\S]*\]/)
+      if (match) { try { items = JSON.parse(match[0]) } catch { /* leer */ } }
     }
+    return new Response(JSON.stringify({ items }), {
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    })
   }
 
-  return new Response(JSON.stringify({ items }), {
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  })
+  // ── Modus: Expense (Belegkopf + Duplikat-Check) ────────────────────────────
+  let expense: ExtractedExpense | null = null
+  try {
+    expense = JSON.parse(rawText)
+  } catch {
+    const match = rawText.match(/\{[\s\S]*\}/)
+    if (match) { try { expense = JSON.parse(match[0]) } catch { /* leer */ } }
+  }
+
+  if (!expense) {
+    return new Response(JSON.stringify({ error: 'Konnte Beleg nicht lesen', raw: rawText }), { status: 422 })
+  }
+
+  // Duplikat-Check in Supabase
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const db = createClient(supabaseUrl, supabaseKey)
+
+  let duplicate: { id: string; date: string | null; total_tl: number | null; notes: string | null } | null = null
+
+  if (expense.ettn) {
+    const { data } = await db.from('receipts').select('id, date, total_tl, notes').eq('ettn', expense.ettn).maybeSingle()
+    if (data) duplicate = data
+  } else if (expense.fatura_no) {
+    const { data } = await db.from('receipts').select('id, date, total_tl, notes').eq('fatura_no', expense.fatura_no).maybeSingle()
+    if (data) duplicate = data
+  }
+
+  // Händler-Match in Supabase (für Vorauswahl in UI)
+  let supplier_match: { id: string; name: string; category: string } | null = null
+  if (expense.supplier_name) {
+    const { data } = await db
+      .from('suppliers')
+      .select('id, name, category')
+      .ilike('name', `%${expense.supplier_name}%`)
+      .maybeSingle()
+    if (data) supplier_match = data
+  }
+
+  return new Response(
+    JSON.stringify({
+      expense,
+      duplicate: duplicate ? { found: true, receipt_id: duplicate.id, date: duplicate.date, total_tl: duplicate.total_tl } : { found: false },
+      supplier_match,
+    }),
+    { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
+  )
 })
