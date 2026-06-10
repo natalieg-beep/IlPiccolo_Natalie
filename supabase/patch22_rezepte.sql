@@ -8,6 +8,10 @@ ALTER TABLE purchase_products
   CHECK (category IN ('molkerei','wurst','mehl','gemuese','getraenke','backen','verpackung','reinigung','privat','sonstiges'));
 
 -- ── Menüpunkte ────────────────────────────────────────────────────────────────
+DROP TABLE IF EXISTS recipe_product_assignments CASCADE;
+DROP TABLE IF EXISTS recipe_ingredients CASCADE;
+DROP TABLE IF EXISTS menu_items CASCADE;
+
 CREATE TABLE menu_items (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
