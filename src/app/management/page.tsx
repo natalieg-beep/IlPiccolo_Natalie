@@ -70,7 +70,7 @@ export default async function ManagementPage() {
     {
       label: 'Ausgaben',
       icon: '🧾',
-      desc: 'Einkaufspreise · Belege scannen',
+      desc: 'Einkaufspreise · Investitionen · Belege scannen',
       href: '/management/ausgaben',
       stat: null,
       statLabel: null,
@@ -78,14 +78,14 @@ export default async function ManagementPage() {
       disabled: false,
     },
     {
-      label: 'Fixkosten',
-      icon: '📌',
-      desc: 'Monatliche Kosten (kommt bald)',
-      href: '/management/fixkosten',
+      label: 'Rezepte & Kalkulation',
+      icon: '📋',
+      desc: 'Zutaten zuordnen · Preiskalkulation',
+      href: '/management/rezepte',
       stat: null,
       statLabel: null,
       highlight: false,
-      disabled: true,
+      disabled: false,
     },
   ]
 
