@@ -284,8 +284,15 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
   // ── Scan ──────────────────────────────────────────────────────────────────
 
+  function applyScanResult(json: { items?: ScannedItem[]; supplier_match?: { id: string; name: string } | null; date?: string | null }) {
+    setScannedItems(matchItems(json.items ?? []))
+    if (json.supplier_match?.id) setScanSupplierId(json.supplier_match.id)
+    if (json.date) setScanDate(json.date)
+  }
+
   async function handleFile(file: File) {
     setScanning(true); setScanError(null); setScannedItems(null)
+    setScanSupplierId(''); setScanDate(new Date().toISOString().slice(0, 10))
     try {
       const buf = await file.arrayBuffer()
       const b64 = bufferToBase64(buf)
@@ -296,7 +303,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Fehler beim Scannen')
-      setScannedItems(matchItems(json.items ?? []))
+      applyScanResult(json)
     } catch (e: unknown) {
       setScanError(e instanceof Error ? e.message : 'Unbekannter Fehler')
     } finally {
@@ -306,6 +313,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
   async function handleTextScan(text: string) {
     setScanning(true); setScanError(null); setScannedItems(null)
+    setScanSupplierId(''); setScanDate(new Date().toISOString().slice(0, 10))
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
         method: 'POST',
@@ -314,7 +322,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Fehler')
-      setScannedItems(matchItems(json.items ?? []))
+      applyScanResult(json)
     } catch (e: unknown) {
       setScanError(e instanceof Error ? e.message : 'Unbekannter Fehler')
     } finally {
@@ -551,7 +559,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                     {/* Händler */}
                     <div style={{ marginBottom: '8px' }}>
                       <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
-                        🏪 Händler (wo eingekauft?)
+                        🏪 Händler {scanSupplierId ? <span style={{ color: '#2E7D32' }}>✓ automatisch erkannt</span> : '(optional)'}
                       </label>
                       <select
                         value={scanSupplierId}

@@ -38,20 +38,24 @@ interface ExtractedExpense {
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
 const PRODUCTS_PROMPT = `Du bist ein Assistent, der türkische Einkaufsbelege und Rechnungen liest.
-Extrahiere alle Produkte mit Preis, Menge und Einheit.
-Antworte NUR mit einem JSON-Array, kein Markdown, kein sonstiger Text.
+Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
 
-Für jedes Produkt:
 {
-  "name": "Produktname auf Deutsch wenn möglich, sonst Türkisch",
-  "price_tl": <Gesamtpreis in TL als Zahl>,
-  "quantity": <Anzahl der EINZELNEN Einheiten als Zahl>,
-  "unit": <"kg" | "g" | "Stk" | "L" | "ml" | "Pkg">,
-  "category_hint": <"molkerei" | "wurst" | "mehl" | "gemuese" | "getraenke" | "backen" | "verpackung" | "reinigung" | "sonstiges">,
-  "notes": "<kurze Notiz wenn hilfreich, sonst leerer String>"
+  "supplier_name": "<Name des Geschäfts / Händlers vom Belegkopf, z.B. 'Muhtar', 'BIM', 'Bostan' — null wenn nicht erkennbar>",
+  "date": "<Datum des Belegs als YYYY-MM-DD — null wenn nicht erkennbar>",
+  "items": [
+    {
+      "name": "Produktname auf Deutsch wenn möglich, sonst Türkisch",
+      "price_tl": <Gesamtpreis in TL als Zahl>,
+      "quantity": <Anzahl der EINZELNEN Einheiten als Zahl>,
+      "unit": <"kg" | "g" | "Stk" | "L" | "ml" | "Pkg">,
+      "category_hint": <"molkerei" | "wurst" | "mehl" | "gemuese" | "getraenke" | "backen" | "verpackung" | "reinigung" | "sonstiges">,
+      "notes": "<kurze Notiz wenn hilfreich, sonst leerer String>"
+    }
+  ]
 }
 
-Regeln:
+Regeln für items:
 - Preis ist IMMER der Gesamtpreis für alle Einzeleinheiten zusammen
 - Menge = ANZAHL DER EINZELSTÜCKE, nicht Kartons/Kisten/Gebinde:
     Cola Kiste 24×0,5L 480₺  → quantity:24  unit:"Stk"  (= 20₺/Stk)
@@ -153,16 +157,35 @@ Deno.serve(async (req) => {
 
   // ── Modus: Produkte ────────────────────────────────────────────────────────
   if (mode === 'products') {
-    let items: ExtractedItem[] = []
+    let parsed: { supplier_name?: string | null; date?: string | null; items?: ExtractedItem[] } = {}
     try {
-      items = JSON.parse(rawText)
+      parsed = JSON.parse(rawText)
     } catch {
-      const match = rawText.match(/\[[\s\S]*\]/)
-      if (match) { try { items = JSON.parse(match[0]) } catch { /* leer */ } }
+      const match = rawText.match(/\{[\s\S]*\}/)
+      if (match) { try { parsed = JSON.parse(match[0]) } catch { /* leer */ } }
     }
-    return new Response(JSON.stringify({ items }), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    })
+    const items: ExtractedItem[] = parsed.items ?? []
+
+    // Händler-Match gegen suppliers-Tabelle
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const db = createClient(supabaseUrl, supabaseKey)
+
+    let supplier_match: { id: string; name: string; category: string } | null = null
+    if (parsed.supplier_name) {
+      const { data } = await db
+        .from('suppliers')
+        .select('id, name, category')
+        .ilike('name', `%${parsed.supplier_name}%`)
+        .limit(1)
+        .maybeSingle()
+      if (data) supplier_match = data
+    }
+
+    return new Response(
+      JSON.stringify({ items, supplier_name: parsed.supplier_name ?? null, date: parsed.date ?? null, supplier_match }),
+      { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
+    )
   }
 
   // ── Modus: Expense (Belegkopf + Duplikat-Check) ────────────────────────────
