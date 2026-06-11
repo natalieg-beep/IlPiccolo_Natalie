@@ -601,6 +601,19 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                         <span style={{ color: '#7B1FA2', fontWeight: 600 }}>🏠 {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
                       </div>
                     )}
+                    {/* Schnell alle umschalten */}
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                      <button
+                        onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, is_private: false })))}
+                        style={{ flex: 1, padding: '7px', border: '1.5px solid #2E7D32', borderRadius: '8px', background: '#E8F5E9', color: '#2E7D32', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                        🏢 Alle geschäftlich
+                      </button>
+                      <button
+                        onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, is_private: true })))}
+                        style={{ flex: 1, padding: '7px', border: '1.5px solid #7B1FA2', borderRadius: '8px', background: '#EDE7F6', color: '#6A1B9A', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                        🏠 Alle privat
+                      </button>
+                    </div>
                   </div>
                   {scannedItems.map((item, i) => {
                     const perUnit = item.quantity > 0 ? item.price_tl / item.quantity : 0

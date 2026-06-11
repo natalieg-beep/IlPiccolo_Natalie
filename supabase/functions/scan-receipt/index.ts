@@ -66,6 +66,9 @@ Regeln für items:
 - IGNORIERE vollständig: Depozit, Güvence, Kaution (Pfand auf Flaschen) — nicht im Array
 - IGNORIERE: Summen, MwSt/KDV, Rabatte, Zahlungsinfos
 - Wenn Einheit unklar → "Stk"
+- ZUSAMMENFASSEN: Erscheint dasselbe Produkt mehrfach als einzelne Zeilen, fasse sie zu EINEM item zusammen:
+    Wasser 10₺ / Wasser 10₺ / Wasser 10₺  →  name:"Wasser", quantity:3, price_tl:30
+    (quantity aufsummieren, price_tl aufsummieren, NICHT mehrere Einträge)
 - Sortiere nach Kategorie`
 
 const EXPENSE_PROMPT = `Du bist ein Assistent, der türkische Rechnungen und Belege liest.
