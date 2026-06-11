@@ -2,6 +2,20 @@
 
 **Stand: 2026-06-11 | Letzter Commit: siehe git log**
 
+## Letzte Änderungen (11.06.2026) — v2
+
+### Einkaufspreise komplett neu (patch24+25)
+- **patch24**: `is_private boolean DEFAULT false` in `purchase_prices`
+- **patch25**: Alle `purchase_prices` + `purchase_products` geleert (Neustart mit sauberen Daten)
+- **AusgabenClient** komplett neu gebaut:
+  - Neuer Tab **🛒 Produkte / 📊 Auswertung**
+  - **Auswertung**: Wochen- und Monatsansicht mit Navigation, Gesamt/Geschäftlich/Privat-Split, Balkendiagramm nach Kategorie, tägliche Einkaufsliste
+  - **Produkte bearbeiten**: ✏️-Button auf jedem Produkt → Name, Kategorie, Einheit ändern oder löschen
+  - **Preise bearbeiten**: ✏️-Button auf jedem Preis-Eintrag → Menge, Einheit, Gesamtpreis, Privat-Flag, Datum korrigieren
+  - **Scan-Bestätigung**: Menge/Einheit editierbar, Echtzeit-Einzelpreis, 🏢/🏠-Toggle pro Zeile
+  - Scan-Prompt: Gebinde → Einzeleinheiten (Cola 24×0,5L → quantity:24 unit:Stk), Depozit ignoriert
+- **Investitionskosten**: "📂 Nicht kategorisiert"-Gruppe für expenses ohne category_id
+
 ## Letzte Änderungen (11.06.2026)
 
 ### Bug-Fix: Bestellübersicht schwarz_bar-Anzeige

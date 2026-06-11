@@ -10,36 +10,37 @@ function bufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf)
   let b64 = ''
   const chunkSize = 8192
-  for (let i = 0; i < bytes.length; i += chunkSize) {
+  for (let i = 0; i < bytes.length; i += chunkSize)
     b64 += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-  }
   return btoa(b64)
 }
 
-const CATEGORIES: { key: string; label: string; icon: string }[] = [
+export const CATEGORIES: { key: string; label: string; icon: string }[] = [
   { key: 'molkerei',   label: 'Molkerei',          icon: '🧀' },
-  { key: 'wurst',      label: 'Wurst & Aufschnitt', icon: '🥩' },
+  { key: 'wurst',      label: 'Wurst & Geflügel',  icon: '🥩' },
   { key: 'mehl',       label: 'Mehl & Teig',        icon: '🌾' },
-  { key: 'gemuese',    label: 'Gemüse & Obst',       icon: '🥦' },
-  { key: 'getraenke',  label: 'Getränke',            icon: '☕' },
-  { key: 'backen',     label: 'Backen & Fette',      icon: '🧈' },
-  { key: 'verpackung', label: 'Verpackung & Papier', icon: '📦' },
-  { key: 'reinigung',  label: 'Reinigung',           icon: '🧹' },
-  { key: 'sonstiges',  label: 'Sonstiges',           icon: '📋' },
+  { key: 'gemuese',    label: 'Gemüse & Obst',      icon: '🥦' },
+  { key: 'getraenke',  label: 'Getränke',           icon: '☕' },
+  { key: 'backen',     label: 'Backen & Fette',     icon: '🧈' },
+  { key: 'verpackung', label: 'Verpackung & Papier',icon: '📦' },
+  { key: 'reinigung',  label: 'Reinigung',          icon: '🧹' },
+  { key: 'sonstiges',  label: 'Sonstiges',          icon: '📋' },
 ]
-const UNITS = ['kg','g','Stk','L','ml','Pkg']
+const UNITS = ['kg', 'g', 'Stk', 'L', 'ml', 'Pkg']
 
-type Product = {
+export type Product = {
   id: string; name: string; category: string; unit: string; notes: string | null; active: boolean
 }
-type Price = {
+export type Price = {
   id: string; product_id: string; price_tl: number; quantity: number; unit: string
-  price_per_unit: number; date: string; source: string; receipt_ref: string | null; notes: string | null
-  is_private: boolean
+  price_per_unit: number; date: string; source: string; receipt_ref: string | null
+  notes: string | null; is_private: boolean
 }
 type ScannedItem = {
-  name: string; price_tl: number; quantity: number; unit: string; category_hint: string; notes: string
-  matched_product_id?: string; is_new_product?: boolean; new_product_name?: string; new_product_category?: string
+  name: string; price_tl: number; quantity: number; unit: string
+  category_hint: string; notes: string
+  matched_product_id?: string; is_new_product?: boolean
+  new_product_name?: string; new_product_category?: string
   is_private?: boolean
 }
 
@@ -49,11 +50,190 @@ function fmtPrice(n: number) {
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
+function startOfWeek(d: Date) {
+  const day = d.getDay()
+  const diff = (day === 0 ? -6 : 1 - day)
+  const monday = new Date(d)
+  monday.setDate(d.getDate() + diff)
+  monday.setHours(0, 0, 0, 0)
+  return monday
+}
+
+// ─── AUSWERTUNGS-TAB ─────────────────────────────────────────────────────────
+
+function AuswertungView({ prices, products }: { prices: Price[]; products: Product[] }) {
+  const [period, setPeriod] = useState<'woche' | 'monat'>('woche')
+  const [offset, setOffset] = useState(0) // 0 = aktuelle Periode, -1 = letzte, etc.
+
+  const now = new Date()
+
+  // Zeitraum berechnen
+  const { from, to, label } = (() => {
+    if (period === 'woche') {
+      const base = startOfWeek(now)
+      base.setDate(base.getDate() + offset * 7)
+      const end = new Date(base)
+      end.setDate(base.getDate() + 6)
+      end.setHours(23, 59, 59, 999)
+      const labelStr = offset === 0 ? 'Diese Woche' : offset === -1 ? 'Letzte Woche'
+        : `${fmtDate(base.toISOString().slice(0,10))} – ${fmtDate(end.toISOString().slice(0,10))}`
+      return { from: base, to: end, label: labelStr }
+    } else {
+      const y = now.getFullYear()
+      const m = now.getMonth() + offset
+      const date = new Date(y, m, 1)
+      const end = new Date(y, m + 1, 0, 23, 59, 59, 999)
+      const labelStr = offset === 0 ? 'Dieser Monat'
+        : date.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+      return { from: date, to: end, label: labelStr }
+    }
+  })()
+
+  const fromStr = from.toISOString().slice(0, 10)
+  const toStr = to.toISOString().slice(0, 10)
+
+  const inPeriod = prices.filter(p => p.date >= fromStr && p.date <= toStr)
+  const business = inPeriod.filter(p => !p.is_private)
+  const privat   = inPeriod.filter(p => p.is_private)
+  const totalBusiness = business.reduce((s, p) => s + p.price_tl, 0)
+  const totalPrivat   = privat.reduce((s, p) => s + p.price_tl, 0)
+  const totalAll      = totalBusiness + totalPrivat
+
+  // Nach Kategorie gruppieren
+  const prodById = (id: string) => products.find(p => p.id === id)
+  const byCat: Record<string, { business: number; privat: number }> = {}
+  for (const p of inPeriod) {
+    const cat = prodById(p.product_id)?.category ?? 'sonstiges'
+    if (!byCat[cat]) byCat[cat] = { business: 0, privat: 0 }
+    if (p.is_private) byCat[cat].privat += p.price_tl
+    else              byCat[cat].business += p.price_tl
+  }
+
+  // Nach Datum gruppieren (Einkaufstage)
+  const byDate: Record<string, Price[]> = {}
+  for (const p of [...inPeriod].sort((a, b) => b.date.localeCompare(a.date))) {
+    if (!byDate[p.date]) byDate[p.date] = []
+    byDate[p.date].push(p)
+  }
+
+  const S = {
+    card: { background: '#FFF', borderRadius: '12px', padding: '14px', marginBottom: '10px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' } as React.CSSProperties,
+  }
+
+  return (
+    <div style={{ padding: '12px', paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' }}>
+      {/* Periode-Toggle */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', background: '#F5F2EC', borderRadius: '10px', padding: '3px', flex: 1 }}>
+          {(['woche', 'monat'] as const).map(p => (
+            <button key={p} onClick={() => { setPeriod(p); setOffset(0) }} style={{
+              flex: 1, padding: '8px', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer',
+              background: period === p ? '#1A1207' : 'transparent',
+              color: period === p ? '#FFF' : '#8A7A60', fontWeight: period === p ? 700 : 400,
+            }}>{p === 'woche' ? '📅 Woche' : '📆 Monat'}</button>
+          ))}
+        </div>
+        <button onClick={() => setOffset(o => o - 1)} style={{ background: '#F5F2EC', border: 'none', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '16px' }}>‹</button>
+        <button onClick={() => setOffset(o => Math.min(0, o + 1))} disabled={offset === 0}
+          style={{ background: offset === 0 ? '#EEE' : '#F5F2EC', border: 'none', borderRadius: '8px', padding: '8px 12px', cursor: offset === 0 ? 'default' : 'pointer', fontSize: '16px', color: offset === 0 ? '#CCC' : '#333' }}>›</button>
+      </div>
+
+      {/* Periode-Label */}
+      <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '15px', color: '#1A1207', marginBottom: '12px' }}>{label}</div>
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+        <div style={{ ...S.card, padding: '10px', marginBottom: 0, background: '#FFF8EC' }}>
+          <div style={{ fontSize: '10px', color: '#8A7A60' }}>Gesamt</div>
+          <div style={{ fontSize: '16px', fontWeight: 800, color: '#B8882A' }}>{fmtPrice(totalAll)}</div>
+          <div style={{ fontSize: '10px', color: '#8A7A60' }}>{inPeriod.length} Posten</div>
+        </div>
+        <div style={{ ...S.card, padding: '10px', marginBottom: 0 }}>
+          <div style={{ fontSize: '10px', color: '#2E7D32' }}>🏢 Geschäftl.</div>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#2E7D32' }}>{fmtPrice(totalBusiness)}</div>
+          <div style={{ fontSize: '10px', color: '#8A7A60' }}>{business.length} Posten</div>
+        </div>
+        <div style={{ ...S.card, padding: '10px', marginBottom: 0 }}>
+          <div style={{ fontSize: '10px', color: '#7B1FA2' }}>🏠 Privat</div>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#7B1FA2' }}>{fmtPrice(totalPrivat)}</div>
+          <div style={{ fontSize: '10px', color: '#8A7A60' }}>{privat.length} Posten</div>
+        </div>
+      </div>
+
+      {/* Nach Kategorie */}
+      {Object.keys(byCat).length > 0 && (
+        <div style={S.card}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: '#8A7A60', marginBottom: '10px' }}>NACH KATEGORIE</div>
+          {CATEGORIES.filter(c => byCat[c.key]).sort((a, b) => (byCat[b.key]?.business + byCat[b.key]?.privat) - (byCat[a.key]?.business + byCat[a.key]?.privat)).map(cat => {
+            const d = byCat[cat.key]
+            const total = d.business + d.privat
+            const pct = totalAll > 0 ? (total / totalAll) * 100 : 0
+            return (
+              <div key={cat.key} style={{ marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '3px' }}>
+                  <span>{cat.icon} {cat.label}</span>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontWeight: 700 }}>{fmtPrice(total)}</span>
+                    {d.privat > 0 && <span style={{ fontSize: '11px', color: '#7B1FA2', marginLeft: '6px' }}>🏠 {fmtPrice(d.privat)}</span>}
+                  </div>
+                </div>
+                <div style={{ height: '5px', background: '#F0ECE8', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: '#B8882A', borderRadius: '3px' }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Nach Einkaufstag */}
+      {Object.keys(byDate).length > 0 && (
+        <div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: '#8A7A60', marginBottom: '8px', paddingLeft: '4px' }}>EINKÄUFE</div>
+          {Object.entries(byDate).map(([date, items]) => {
+            const dayTotal = items.reduce((s, p) => s + p.price_tl, 0)
+            const dayPrivat = items.filter(p => p.is_private).reduce((s, p) => s + p.price_tl, 0)
+            return (
+              <div key={date} style={S.card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '14px' }}>{fmtDate(date)}</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontWeight: 700 }}>{fmtPrice(dayTotal)}</span>
+                    {dayPrivat > 0 && <span style={{ fontSize: '11px', color: '#7B1FA2', marginLeft: '6px' }}>🏠 {fmtPrice(dayPrivat)}</span>}
+                  </div>
+                </div>
+                {items.map(p => {
+                  const prod = prodById(p.product_id)
+                  return (
+                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '3px 0', borderTop: '1px solid #F5F2EC', color: p.is_private ? '#7B1FA2' : '#5A5040' }}>
+                      <span>{p.is_private ? '🏠 ' : ''}{prod?.name ?? '?'} <span style={{ color: '#A09880' }}>{p.quantity} {p.unit}</span></span>
+                      <span style={{ fontWeight: 600 }}>{fmtPrice(p.price_tl)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {inPeriod.length === 0 && (
+        <div style={{ textAlign: 'center', color: '#A09880', padding: '40px 20px' }}>
+          <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+          <div>Keine Einkäufe in diesem Zeitraum</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── HAUPTKOMPONENTE ──────────────────────────────────────────────────────────
 
 export default function AusgabenClient({ products, allPrices }: { products: Product[]; allPrices: Price[] }) {
   const supabase = createClient()
 
   // State
+  const [mainTab, setMainTab] = useState<'produkte' | 'auswertung'>('produkte')
   const [view, setView] = useState<'matrix' | 'scan' | 'manual_product' | 'manual_price'>('matrix')
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
@@ -66,7 +246,13 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Letzter Preis pro Produkt (gefiltert nach privat/geschäftlich)
+  // Edit-States
+  const [editingProduct, setEditingProduct] = useState<string | null>(null)
+  const [editProductForm, setEditProductForm] = useState<{ name: string; category: string; unit: string; notes: string }>({ name: '', category: '', unit: '', notes: '' })
+  const [editingPrice, setEditingPrice] = useState<string | null>(null)
+  const [editPriceForm, setEditPriceForm] = useState<{ price_tl: string; quantity: string; unit: string; date: string; notes: string; is_private: boolean }>({ price_tl: '', quantity: '', unit: '', date: '', notes: '', is_private: false })
+
+  // Preise gefiltert nach privat/geschäftlich
   const latestPrice = useCallback((productId: string) => {
     return localPrices.find(p => p.product_id === productId &&
       (showPrivat === 'alle' || (showPrivat === 'privat' ? p.is_private : !p.is_private))
@@ -76,15 +262,18 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
   const priceHistory = useCallback((productId: string) => {
     return localPrices.filter(p => p.product_id === productId &&
       (showPrivat === 'alle' || (showPrivat === 'privat' ? p.is_private : !p.is_private))
-    ).slice(0, 10)
+    ).slice(0, 20)
   }, [localPrices, showPrivat])
 
-  // Neues Produkt
+  // Neues Produkt / Neuer Preis
   const [newProd, setNewProd] = useState({ name: '', category: 'molkerei', unit: 'kg', notes: '' })
-  // Neuer Preis manuell
-  const [manualPrice, setManualPrice] = useState({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0,10), notes: '', is_private: false })
+  const [manualPrice, setManualPrice] = useState({
+    product_id: '', price_tl: '', quantity: '1', unit: 'kg',
+    date: new Date().toISOString().slice(0, 10), notes: '', is_private: false,
+  })
 
-  // --- Scan ---
+  // ── Scan ──────────────────────────────────────────────────────────────────
+
   async function handleFile(file: File) {
     setScanning(true); setScanError(null); setScannedItems(null)
     try {
@@ -97,15 +286,7 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Fehler beim Scannen')
-      // Produkte matchen
-      const items: ScannedItem[] = (json.items ?? []).map((item: ScannedItem) => {
-        const match = localProducts.find(p =>
-          p.name.toLowerCase().includes(item.name.toLowerCase()) ||
-          item.name.toLowerCase().includes(p.name.toLowerCase())
-        )
-        return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint }
-      })
-      setScannedItems(items)
+      setScannedItems(matchItems(json.items ?? []))
     } catch (e: unknown) {
       setScanError(e instanceof Error ? e.message : 'Unbekannter Fehler')
     } finally {
@@ -123,19 +304,22 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Fehler')
-      const items: ScannedItem[] = (json.items ?? []).map((item: ScannedItem) => {
-        const match = localProducts.find(p =>
-          p.name.toLowerCase().includes(item.name.toLowerCase()) ||
-          item.name.toLowerCase().includes(p.name.toLowerCase())
-        )
-        return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint }
-      })
-      setScannedItems(items)
+      setScannedItems(matchItems(json.items ?? []))
     } catch (e: unknown) {
       setScanError(e instanceof Error ? e.message : 'Unbekannter Fehler')
     } finally {
       setScanning(false)
     }
+  }
+
+  function matchItems(items: ScannedItem[]): ScannedItem[] {
+    return items.map(item => {
+      const match = localProducts.find(p =>
+        p.name.toLowerCase().includes(item.name.toLowerCase()) ||
+        item.name.toLowerCase().includes(p.name.toLowerCase())
+      )
+      return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint, is_private: false }
+    })
   }
 
   async function saveScannedItems() {
@@ -151,22 +335,14 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
             category: item.new_product_category || 'sonstiges',
             unit: item.unit,
           }).select().single()
-          if (newP) {
-            productId = newP.id
-            setLocalProducts(prev => [...prev, newP])
-          }
+          if (newP) { productId = newP.id; setLocalProducts(prev => [...prev, newP as Product]) }
         }
         if (!productId) continue
         const { data: newPrice } = await supabase.from('purchase_prices').insert({
-          product_id: productId,
-          price_tl: item.price_tl,
-          quantity: item.quantity,
-          unit: item.unit,
-          date,
-          source: 'scan',
-          is_private: item.is_private ?? false,
+          product_id: productId, price_tl: item.price_tl, quantity: item.quantity,
+          unit: item.unit, date, source: 'scan', is_private: item.is_private ?? false,
         }).select().single()
-        if (newPrice) setLocalPrices(prev => [newPrice, ...prev])
+        if (newPrice) setLocalPrices(prev => [newPrice as Price, ...prev])
       }
       setScannedItems(null)
       setView('matrix')
@@ -175,19 +351,49 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
     }
   }
 
-  // --- Produkt anlegen ---
+  // ── Produkt anlegen ────────────────────────────────────────────────────────
+
   async function saveNewProduct() {
     if (!newProd.name.trim()) return
     setSaving(true)
     const { data } = await supabase.from('purchase_products').insert({
       name: newProd.name.trim(), category: newProd.category, unit: newProd.unit, notes: newProd.notes || null,
     }).select().single()
-    if (data) { setLocalProducts(prev => [...prev, data]); setNewProd({ name: '', category: 'molkerei', unit: 'kg', notes: '' }) }
+    if (data) { setLocalProducts(prev => [...prev, data as Product]); setNewProd({ name: '', category: 'molkerei', unit: 'kg', notes: '' }) }
     setSaving(false)
     setView('matrix')
   }
 
-  // --- Preis manuell ---
+  // ── Produkt bearbeiten ─────────────────────────────────────────────────────
+
+  function startEditProduct(prod: Product) {
+    setEditingProduct(prod.id)
+    setEditProductForm({ name: prod.name, category: prod.category, unit: prod.unit, notes: prod.notes ?? '' })
+  }
+
+  async function saveEditProduct(prodId: string) {
+    setSaving(true)
+    const { data } = await supabase.from('purchase_products').update({
+      name: editProductForm.name.trim(),
+      category: editProductForm.category,
+      unit: editProductForm.unit,
+      notes: editProductForm.notes || null,
+    }).eq('id', prodId).select().single()
+    if (data) setLocalProducts(prev => prev.map(p => p.id === prodId ? data as Product : p))
+    setEditingProduct(null)
+    setSaving(false)
+  }
+
+  async function deleteProduct(prodId: string) {
+    if (!confirm('Produkt und alle Preiseinträge löschen?')) return
+    await supabase.from('purchase_products').delete().eq('id', prodId)
+    setLocalProducts(prev => prev.filter(p => p.id !== prodId))
+    setLocalPrices(prev => prev.filter(p => p.product_id !== prodId))
+    setExpandedProduct(null)
+  }
+
+  // ── Preis manuell ──────────────────────────────────────────────────────────
+
   async function saveManualPrice() {
     if (!manualPrice.product_id || !manualPrice.price_tl) return
     setSaving(true)
@@ -197,361 +403,480 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
       price_tl: parseFloat(manualPrice.price_tl),
       quantity: parseFloat(manualPrice.quantity) || 1,
       unit: manualPrice.unit || prod?.unit || 'Stk',
-      date: manualPrice.date,
-      source: 'manual',
+      date: manualPrice.date, source: 'manual',
       notes: manualPrice.notes || null,
       is_private: manualPrice.is_private,
     }).select().single()
-    if (data) setLocalPrices(prev => [data, ...prev])
+    if (data) setLocalPrices(prev => [data as Price, ...prev])
     setSaving(false)
     setView('matrix')
-    setManualPrice({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0,10), notes: '', is_private: false })
+    setManualPrice({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0, 10), notes: '', is_private: false })
   }
 
-  // --- Grouped products ---
+  // ── Preis bearbeiten ───────────────────────────────────────────────────────
+
+  function startEditPrice(p: Price) {
+    setEditingPrice(p.id)
+    setEditPriceForm({
+      price_tl: String(p.price_tl), quantity: String(p.quantity), unit: p.unit,
+      date: p.date, notes: p.notes ?? '', is_private: p.is_private,
+    })
+  }
+
+  async function saveEditPrice(priceId: string) {
+    setSaving(true)
+    const { data } = await supabase.from('purchase_prices').update({
+      price_tl:   parseFloat(editPriceForm.price_tl),
+      quantity:   parseFloat(editPriceForm.quantity) || 1,
+      unit:       editPriceForm.unit,
+      date:       editPriceForm.date,
+      notes:      editPriceForm.notes || null,
+      is_private: editPriceForm.is_private,
+    }).eq('id', priceId).select().single()
+    if (data) setLocalPrices(prev => prev.map(p => p.id === priceId ? data as Price : p))
+    setEditingPrice(null)
+    setSaving(false)
+  }
+
+  async function deletePrice(priceId: string) {
+    await supabase.from('purchase_prices').delete().eq('id', priceId)
+    setLocalPrices(prev => prev.filter(p => p.id !== priceId))
+    setEditingPrice(null)
+  }
+
+  // ── Hilfsvariablen ─────────────────────────────────────────────────────────
+
   const filtered = selectedCat ? localProducts.filter(p => p.category === selectedCat) : localProducts
   const grouped = CATEGORIES.map(cat => ({
-    ...cat,
-    items: filtered.filter(p => p.category === cat.key),
+    ...cat, items: filtered.filter(p => p.category === cat.key),
   })).filter(g => g.items.length > 0 || !selectedCat)
 
-  // --- Paste-Text state ---
   const [pasteText, setPasteText] = useState('')
   const [showPaste, setShowPaste] = useState(false)
 
   const S = {
-    header: { padding: '16px', background: '#FFFDF9', borderBottom: '1px solid #E5E0D8', display: 'flex', alignItems: 'center', gap: '12px' } as React.CSSProperties,
+    header: { padding: '12px 16px', background: '#FFFDF9', borderBottom: '1px solid #E5E0D8', display: 'flex', alignItems: 'center', gap: '8px' } as React.CSSProperties,
     btn: (bg: string, color = '#FFF') => ({ background: bg, color, border: 'none', borderRadius: '10px', padding: '10px 16px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' } as React.CSSProperties),
     card: { background: '#FFF', borderRadius: '12px', border: '1px solid #E5E0D8', overflow: 'hidden', marginBottom: '8px' } as React.CSSProperties,
+    input: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '14px', boxSizing: 'border-box' } as React.CSSProperties,
   }
+
+  // ── Render: Main-Tabs ──────────────────────────────────────────────────────
 
   return (
     <div style={{ minHeight: '100dvh', background: '#F7F4F0', maxWidth: '600px', margin: '0 auto' }}>
-      {/* Sub-Header für Einkaufspreise */}
-      <div style={{ ...S.header, justifyContent: 'flex-end' }}>
-        <button onClick={() => setView('scan')} style={S.btn('#1565C0')}>📷 Scan</button>
-        <button onClick={() => { setManualPrice(p => ({ ...p, date: new Date().toISOString().slice(0,10) })); setView('manual_price') }} style={{ ...S.btn('#2E7D32'), marginLeft: '6px' }}>+ Preis</button>
-        <button onClick={() => setView('manual_product')} style={{ ...S.btn('#555', '#FFF'), marginLeft: '6px', fontSize: '13px' }}>+ Produkt</button>
+
+      {/* Main-Tab-Bar */}
+      <div style={{ padding: '8px 12px', background: '#FFFDF9', borderBottom: '1px solid #E5E0D8', display: 'flex', gap: '6px' }}>
+        {([['produkte', '🛒 Produkte'], ['auswertung', '📊 Auswertung']] as const).map(([tab, label]) => (
+          <button key={tab} onClick={() => setMainTab(tab)} style={{
+            flex: 1, padding: '8px', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: mainTab === tab ? 700 : 400,
+            background: mainTab === tab ? '#1A1207' : 'transparent', color: mainTab === tab ? '#FFF' : '#8A7A60', cursor: 'pointer',
+          }}>{label}</button>
+        ))}
       </div>
 
-      {/* === SCAN VIEW === */}
-      {view === 'scan' && (
-        <div style={{ padding: '16px' }}>
-          <div style={{ ...S.card, padding: '16px' }}>
-            <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Beleg scannen</p>
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment"
-              style={{ display: 'none' }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-            />
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button onClick={() => fileRef.current?.click()} style={S.btn('#1565C0')} disabled={scanning}>
-                {scanning ? '⏳ Scanning…' : '📸 Foto aufnehmen / Datei wählen'}
-              </button>
-              <button onClick={() => setShowPaste(s => !s)} style={S.btn('#555')}>📋 Text einfügen</button>
-            </div>
+      {/* Auswertungs-Tab */}
+      {mainTab === 'auswertung' && (
+        <AuswertungView prices={localPrices} products={localProducts} />
+      )}
 
-            {showPaste && (
-              <div style={{ marginTop: '12px' }}>
-                <textarea value={pasteText} onChange={e => setPasteText(e.target.value)}
-                  placeholder="Belegtext hier einfügen (aus PDF kopiert)…"
-                  style={{ width: '100%', minHeight: '120px', borderRadius: '8px', border: '1px solid #E5E0D8', padding: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }}
-                />
-                <button onClick={() => { handleTextScan(pasteText); setShowPaste(false); setPasteText('') }}
-                  disabled={!pasteText.trim() || scanning} style={{ ...S.btn('#1565C0'), marginTop: '8px' }}>
-                  Analysieren
-                </button>
-              </div>
-            )}
-
-            {scanError && <p style={{ color: '#C62828', marginTop: '12px', fontSize: '13px' }}>{scanError}</p>}
-          </div>
-
-          {scannedItems && (
-            <div style={S.card}>
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E0D8' }}>
-                <div style={{ fontWeight: 600 }}>{scannedItems.length} Produkte erkannt</div>
-                <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>
-                  Mengen und Einheiten prüfen · Privat-Items markieren
-                </div>
-                {scannedItems.some(i => i.is_private) && (
-                  <div style={{ fontSize: '12px', marginTop: '4px', display: 'flex', gap: '12px' }}>
-                    <span style={{ color: '#2E7D32' }}>🏢 Geschäftlich: {fmtPrice(scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
-                    <span style={{ color: '#7B1FA2' }}>🏠 Privat: {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
-                  </div>
-                )}
-              </div>
-              {scannedItems.map((item, i) => {
-                const perUnit = item.quantity > 0 ? item.price_tl / item.quantity : 0
-                return (
-                  <div key={i} style={{
-                    padding: '10px 16px', borderBottom: '1px solid #F0ECE8',
-                    background: item.is_private ? '#F9F0FF' : undefined,
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '14px' }}>{item.name}</div>
-                        <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '1px' }}>
-                          {item.category_hint}
-                          {item.is_new_product && <span style={{ color: '#1565C0', marginLeft: '6px' }}>✦ neu</span>}
-                          {!item.is_new_product && <span style={{ color: '#2E7D32', marginLeft: '6px' }}>✓ bekannt</span>}
-                        </div>
-                      </div>
-                      <button onClick={() => setScannedItems(prev => prev!.filter((_, j) => j !== i))}
-                        style={{ background: 'none', border: 'none', color: '#C62828', fontSize: '16px', cursor: 'pointer', padding: '0 4px', flexShrink: 0 }}>✕</button>
-                    </div>
-                    {/* Editierbare Felder */}
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
-                        <span style={{ fontSize: '11px', color: '#8A7A60' }}>Ges.preis</span>
-                        <input
-                          type="number" inputMode="decimal" value={item.price_tl}
-                          onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, price_tl: parseFloat(e.target.value) || 0 } : it))}
-                          style={{ width: '64px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }}
-                        />
-                        <span style={{ fontSize: '11px', color: '#8A7A60' }}>₺</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
-                        <input
-                          type="number" inputMode="decimal" value={item.quantity}
-                          onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, quantity: parseFloat(e.target.value) || 1 } : it))}
-                          style={{ width: '44px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }}
-                        />
-                        <select value={item.unit}
-                          onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, unit: e.target.value } : it))}
-                          style={{ border: 'none', background: 'transparent', fontSize: '13px', color: '#5A5040' }}>
-                          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                        </select>
-                      </div>
-                      {item.quantity > 0 && (
-                        <span style={{ fontSize: '12px', color: '#5A5040', fontWeight: 600 }}>
-                          = {fmtPrice(perUnit)}/{item.unit}
-                        </span>
-                      )}
-                      <button
-                        onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, is_private: !it.is_private } : it))}
-                        style={{
-                          marginLeft: 'auto', border: 'none', borderRadius: '20px', padding: '4px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                          background: item.is_private ? '#7B1FA2' : '#E5E0D8',
-                          color: item.is_private ? '#FFF' : '#8A7A60',
-                        }}>
-                        {item.is_private ? '🏠 Privat' : '🏢 Geschäftl.'}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-              <div style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
-                <button onClick={() => { setScannedItems(null); setView('matrix') }} style={S.btn('#E0E0E0', '#555')}>Verwerfen</button>
-                <button onClick={saveScannedItems} disabled={saving} style={{ ...S.btn('#2E7D32'), flex: 1 }}>
-                  {saving ? 'Speichern…' : `✓ Alle speichern`}
-                </button>
-              </div>
+      {/* Produkte-Tab */}
+      {mainTab === 'produkte' && (
+        <>
+          {/* Action-Bar */}
+          {view === 'matrix' && (
+            <div style={{ ...S.header, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setScannedItems(null); setScanError(null); setView('scan') }} style={S.btn('#1565C0')}>📷 Scan</button>
+              <button onClick={() => { setManualPrice(p => ({ ...p, date: new Date().toISOString().slice(0,10) })); setView('manual_price') }} style={{ ...S.btn('#2E7D32'), marginLeft: '4px' }}>+ Preis</button>
+              <button onClick={() => setView('manual_product')} style={{ ...S.btn('#555'), marginLeft: '4px', fontSize: '13px' }}>+ Produkt</button>
             </div>
           )}
 
-          <button onClick={() => setView('matrix')} style={{ ...S.btn('#E0E0E0', '#555'), marginTop: '8px', width: '100%' }}>← Zurück</button>
-        </div>
-      )}
-
-      {/* === NEUES PRODUKT === */}
-      {view === 'manual_product' && (
-        <div style={{ padding: '16px' }}>
-          <div style={{ ...S.card, padding: '16px' }}>
-            <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Neues Produkt anlegen</p>
-            <input value={newProd.name} onChange={e => setNewProd(p => ({ ...p, name: e.target.value }))}
-              placeholder="Produktname" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', boxSizing: 'border-box', marginBottom: '10px' }} />
-            <select value={newProd.category} onChange={e => setNewProd(p => ({ ...p, category: e.target.value }))}
-              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', marginBottom: '10px' }}>
-              {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
-            </select>
-            <select value={newProd.unit} onChange={e => setNewProd(p => ({ ...p, unit: e.target.value }))}
-              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', marginBottom: '10px' }}>
-              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-            <input value={newProd.notes} onChange={e => setNewProd(p => ({ ...p, notes: e.target.value }))}
-              placeholder="Notiz (optional)" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '14px', boxSizing: 'border-box', marginBottom: '12px' }} />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => setView('matrix')} style={S.btn('#E0E0E0', '#555')}>Abbrechen</button>
-              <button onClick={saveNewProduct} disabled={saving || !newProd.name.trim()} style={{ ...S.btn('#2E7D32'), flex: 1 }}>
-                {saving ? 'Speichern…' : '✓ Produkt anlegen'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* === MANUELLER PREIS === */}
-      {view === 'manual_price' && (
-        <div style={{ padding: '16px' }}>
-          <div style={{ ...S.card, padding: '16px' }}>
-            <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Preis eintragen</p>
-            <select value={manualPrice.product_id} onChange={e => {
-              const prod = localProducts.find(p => p.id === e.target.value)
-              setManualPrice(p => ({ ...p, product_id: e.target.value, unit: prod?.unit || 'kg' }))
-            }} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', marginBottom: '10px' }}>
-              <option value="">Produkt wählen…</option>
-              {CATEGORIES.map(cat => {
-                const prods = localProducts.filter(p => p.category === cat.key)
-                if (!prods.length) return null
-                return <optgroup key={cat.key} label={`${cat.icon} ${cat.label}`}>
-                  {prods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </optgroup>
-              })}
-            </select>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-              <div style={{ flex: 2 }}>
-                <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px' }}>Gesamtpreis (₺)</label>
-                <input type="number" inputMode="decimal" value={manualPrice.price_tl}
-                  onChange={e => setManualPrice(p => ({ ...p, price_tl: e.target.value }))}
-                  placeholder="0.00" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', boxSizing: 'border-box' }} />
+          {/* ── SCAN ─────────────────────────────────────────────────────── */}
+          {view === 'scan' && (
+            <div style={{ padding: '16px' }}>
+              <div style={{ ...S.card, padding: '16px' }}>
+                <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Beleg scannen</p>
+                <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment"
+                  style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+                />
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button onClick={() => fileRef.current?.click()} style={S.btn('#1565C0')} disabled={scanning}>
+                    {scanning ? '⏳ Scanning…' : '📸 Foto / Datei wählen'}
+                  </button>
+                  <button onClick={() => setShowPaste(s => !s)} style={S.btn('#555')}>📋 Text einfügen</button>
+                </div>
+                {showPaste && (
+                  <div style={{ marginTop: '12px' }}>
+                    <textarea value={pasteText} onChange={e => setPasteText(e.target.value)}
+                      placeholder="Belegtext hier einfügen…"
+                      style={{ width: '100%', minHeight: '120px', borderRadius: '8px', border: '1px solid #E5E0D8', padding: '8px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }}
+                    />
+                    <button onClick={() => { handleTextScan(pasteText); setShowPaste(false); setPasteText('') }}
+                      disabled={!pasteText.trim() || scanning} style={{ ...S.btn('#1565C0'), marginTop: '8px' }}>
+                      Analysieren
+                    </button>
+                  </div>
+                )}
+                {scanError && <p style={{ color: '#C62828', marginTop: '12px', fontSize: '13px' }}>{scanError}</p>}
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px' }}>Menge</label>
-                <input type="number" inputMode="decimal" value={manualPrice.quantity}
-                  onChange={e => setManualPrice(p => ({ ...p, quantity: e.target.value }))}
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', boxSizing: 'border-box' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px' }}>Einheit</label>
-                <select value={manualPrice.unit} onChange={e => setManualPrice(p => ({ ...p, unit: e.target.value }))}
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px' }}>
-                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
-              </div>
-            </div>
-            {manualPrice.price_tl && manualPrice.quantity && (
-              <div style={{ fontSize: '13px', color: '#2E7D32', fontWeight: 600, marginBottom: '10px' }}>
-                = {fmtPrice(parseFloat(manualPrice.price_tl) / (parseFloat(manualPrice.quantity) || 1))} / {manualPrice.unit}
-              </div>
-            )}
-            <input type="date" value={manualPrice.date} onChange={e => setManualPrice(p => ({ ...p, date: e.target.value }))}
-              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', marginBottom: '10px', boxSizing: 'border-box' }} />
-            <input value={manualPrice.notes} onChange={e => setManualPrice(p => ({ ...p, notes: e.target.value }))}
-              placeholder="Notiz (optional)" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' }} />
-            <button
-              onClick={() => setManualPrice(p => ({ ...p, is_private: !p.is_private }))}
-              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: `2px solid ${manualPrice.is_private ? '#7B1FA2' : '#E5E0D8'}`, background: manualPrice.is_private ? '#F9F0FF' : '#FFF', color: manualPrice.is_private ? '#7B1FA2' : '#8A7A60', fontWeight: 600, fontSize: '14px', cursor: 'pointer', marginBottom: '12px' }}>
-              {manualPrice.is_private ? '🏠 Privat (für zuhause)' : '🏢 Geschäftlich'}
-            </button>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => setView('matrix')} style={S.btn('#E0E0E0', '#555')}>Abbrechen</button>
-              <button onClick={saveManualPrice} disabled={saving || !manualPrice.product_id || !manualPrice.price_tl}
-                style={{ ...S.btn('#2E7D32'), flex: 1 }}>
-                {saving ? 'Speichern…' : '✓ Preis speichern'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* === MATRIX VIEW === */}
-      {view === 'matrix' && (
-        <div style={{ padding: '12px' }}>
-          {/* Geschäftlich/Privat-Filter */}
-          <div style={{ display: 'flex', background: '#F5F2EC', borderRadius: '10px', padding: '3px', marginBottom: '10px', gap: '3px' }}>
-            {(['geschaeftlich', 'alle', 'privat'] as const).map(m => (
-              <button key={m} onClick={() => setShowPrivat(m)} style={{
-                flex: 1, padding: '7px 4px', border: 'none', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
-                background: showPrivat === m ? (m === 'privat' ? '#7B1FA2' : m === 'geschaeftlich' ? '#2E7D32' : '#5A5040') : 'transparent',
-                color: showPrivat === m ? '#FFF' : '#8A7A60',
-                fontWeight: showPrivat === m ? 700 : 400,
-              }}>
-                {m === 'geschaeftlich' ? '🏢 Geschäftl.' : m === 'privat' ? '🏠 Privat' : 'Alle'}
-              </button>
-            ))}
-          </div>
-
-          {/* Kategoriefilter */}
-          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '12px' }}>
-            <button onClick={() => setSelectedCat(null)}
-              style={{ ...S.btn(selectedCat === null ? '#1A1207' : '#E5E0D8', selectedCat === null ? '#FFF' : '#555'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: '13px' }}>
-              Alle
-            </button>
-            {CATEGORIES.map(cat => (
-              <button key={cat.key} onClick={() => setSelectedCat(selectedCat === cat.key ? null : cat.key)}
-                style={{ ...S.btn(selectedCat === cat.key ? '#1A1207' : '#E5E0D8', selectedCat === cat.key ? '#FFF' : '#555'), whiteSpace: 'nowrap', padding: '6px 10px', fontSize: '13px' }}>
-                {cat.icon}
-              </button>
-            ))}
-          </div>
-
-          {grouped.map(cat => (
-            <div key={cat.key} style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#8A7A60', letterSpacing: '0.05em', marginBottom: '6px', paddingLeft: '4px' }}>
-                {cat.icon} {cat.label.toUpperCase()}
-              </div>
-              {cat.items.length === 0 && (
-                <div style={{ color: '#A09880', fontSize: '13px', padding: '8px 4px' }}>Keine Produkte in dieser Kategorie</div>
-              )}
-              {cat.items.map(prod => {
-                const lp = latestPrice(prod.id)
-                const hist = priceHistory(prod.id)
-                const isExpanded = expandedProduct === prod.id
-
-                return (
-                  <div key={prod.id} style={S.card}>
-                    <div onClick={() => setExpandedProduct(isExpanded ? null : prod.id)}
-                      style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '15px' }}>{prod.name}</div>
-                        {lp && (
-                          <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>
-                            {fmtDate(lp.date)} · {lp.quantity} {lp.unit}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        {lp ? (
-                          <>
-                            <div style={{ fontWeight: 700, fontSize: '16px', color: '#1A1207' }}>{fmtPrice(lp.price_per_unit)}<span style={{ fontSize: '12px', fontWeight: 400 }}>/{lp.unit}</span></div>
-                            <div style={{ fontSize: '12px', color: '#8A7A60' }}>Gesamt: {fmtPrice(lp.price_tl)}</div>
-                          </>
-                        ) : (
-                          <div style={{ color: '#A09880', fontSize: '13px' }}>kein Preis</div>
-                        )}
-                      </div>
-                      <span style={{ color: '#A09880', fontSize: '14px' }}>{isExpanded ? '▲' : '▼'}</span>
-                    </div>
-
-                    {isExpanded && (
-                      <div style={{ borderTop: '1px solid #F0ECE8', background: '#FAFAFA' }}>
-                        <div style={{ padding: '8px 14px 4px', fontSize: '12px', fontWeight: 700, color: '#8A7A60' }}>PREISVERLAUF</div>
-                        {hist.length === 0 && <div style={{ padding: '8px 14px', color: '#A09880', fontSize: '13px' }}>Noch keine Preise erfasst</div>}
-                        {hist.map(p => (
-                          <div key={p.id} style={{ padding: '6px 14px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px solid #F0ECE8', background: p.is_private ? '#FDF5FF' : undefined }}>
-                            <div>
-                              <span style={{ color: '#555' }}>{fmtDate(p.date)}</span>
-                              <span style={{ color: '#A09880', marginLeft: '8px' }}>{p.quantity} {p.unit}</span>
-                              {p.source === 'scan' && <span style={{ color: '#1565C0', marginLeft: '6px', fontSize: '11px' }}>📷</span>}
-                              {p.is_private && <span style={{ color: '#7B1FA2', marginLeft: '6px', fontSize: '11px' }}>🏠 privat</span>}
-                              {p.notes && <span style={{ color: '#A09880', marginLeft: '6px', fontSize: '11px' }}>{p.notes}</span>}
-                            </div>
-                            <div style={{ fontWeight: 600 }}>
-                              {fmtPrice(p.price_per_unit)}/{p.unit}
-                              <span style={{ fontWeight: 400, color: '#8A7A60', marginLeft: '6px' }}>({fmtPrice(p.price_tl)})</span>
-                            </div>
-                          </div>
-                        ))}
-                        <div style={{ padding: '8px 14px' }}>
-                          <button onClick={() => { setManualPrice(p => ({ ...p, product_id: prod.id, unit: prod.unit, date: new Date().toISOString().slice(0,10) })); setView('manual_price') }}
-                            style={S.btn('#2E7D32', '#FFF')}>+ Preis eintragen</button>
-                        </div>
+              {scannedItems && (
+                <div style={S.card}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E0D8' }}>
+                    <div style={{ fontWeight: 600 }}>{scannedItems.length} Produkte erkannt</div>
+                    <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>Mengen prüfen · Privat-Items markieren</div>
+                    {scannedItems.some(i => i.is_private) && (
+                      <div style={{ fontSize: '12px', marginTop: '4px', display: 'flex', gap: '12px' }}>
+                        <span style={{ color: '#2E7D32' }}>🏢 {fmtPrice(scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
+                        <span style={{ color: '#7B1FA2' }}>🏠 {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
                       </div>
                     )}
                   </div>
-                )
-              })}
-            </div>
-          ))}
+                  {scannedItems.map((item, i) => {
+                    const perUnit = item.quantity > 0 ? item.price_tl / item.quantity : 0
+                    return (
+                      <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #F0ECE8', background: item.is_private ? '#F9F0FF' : undefined }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{item.name}</div>
+                            <div style={{ fontSize: '11px', color: '#8A7A60' }}>
+                              {item.category_hint}
+                              {item.is_new_product && <span style={{ color: '#1565C0', marginLeft: '6px' }}>✦ neu</span>}
+                              {!item.is_new_product && <span style={{ color: '#2E7D32', marginLeft: '6px' }}>✓ bekannt</span>}
+                            </div>
+                          </div>
+                          <button onClick={() => setScannedItems(prev => prev!.filter((_, j) => j !== i))}
+                            style={{ background: 'none', border: 'none', color: '#C62828', fontSize: '16px', cursor: 'pointer', padding: '0 4px', flexShrink: 0 }}>✕</button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
+                            <span style={{ fontSize: '11px', color: '#8A7A60' }}>Ges.</span>
+                            <input type="number" inputMode="decimal" value={item.price_tl}
+                              onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, price_tl: parseFloat(e.target.value) || 0 } : it))}
+                              style={{ width: '60px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }} />
+                            <span style={{ fontSize: '11px', color: '#8A7A60' }}>₺</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
+                            <input type="number" inputMode="decimal" value={item.quantity}
+                              onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, quantity: parseFloat(e.target.value) || 1 } : it))}
+                              style={{ width: '40px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }} />
+                            <select value={item.unit}
+                              onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, unit: e.target.value } : it))}
+                              style={{ border: 'none', background: 'transparent', fontSize: '13px', color: '#5A5040' }}>
+                              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                          </div>
+                          {item.quantity > 0 && <span style={{ fontSize: '12px', color: '#2E7D32', fontWeight: 600 }}>{fmtPrice(perUnit)}/{item.unit}</span>}
+                          <button onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, is_private: !it.is_private } : it))}
+                            style={{ marginLeft: 'auto', border: 'none', borderRadius: '20px', padding: '4px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', background: item.is_private ? '#7B1FA2' : '#E5E0D8', color: item.is_private ? '#FFF' : '#8A7A60' }}>
+                            {item.is_private ? '🏠 Privat' : '🏢 Geschäftl.'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <div style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
+                    <button onClick={() => { setScannedItems(null); setView('matrix') }} style={S.btn('#E0E0E0', '#555')}>Verwerfen</button>
+                    <button onClick={saveScannedItems} disabled={saving} style={{ ...S.btn('#2E7D32'), flex: 1 }}>
+                      {saving ? 'Speichern…' : '✓ Alle speichern'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
-          {localProducts.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#A09880', padding: '40px 20px' }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🛒</div>
-              <div style={{ fontWeight: 600 }}>Noch keine Produkte</div>
-              <div style={{ fontSize: '13px', marginTop: '6px' }}>Füge Produkte hinzu oder scanne einen Beleg</div>
+              <button onClick={() => setView('matrix')} style={{ ...S.btn('#E0E0E0', '#555'), marginTop: '8px', width: '100%' }}>← Zurück</button>
             </div>
           )}
-        </div>
+
+          {/* ── NEUES PRODUKT ─────────────────────────────────────────────── */}
+          {view === 'manual_product' && (
+            <div style={{ padding: '16px' }}>
+              <div style={{ ...S.card, padding: '16px' }}>
+                <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Neues Produkt anlegen</p>
+                <input value={newProd.name} onChange={e => setNewProd(p => ({ ...p, name: e.target.value }))}
+                  placeholder="Produktname" style={{ ...S.input, marginBottom: '10px' }} />
+                <select value={newProd.category} onChange={e => setNewProd(p => ({ ...p, category: e.target.value }))}
+                  style={{ ...S.input, marginBottom: '10px' }}>
+                  {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
+                </select>
+                <select value={newProd.unit} onChange={e => setNewProd(p => ({ ...p, unit: e.target.value }))}
+                  style={{ ...S.input, marginBottom: '10px' }}>
+                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+                <input value={newProd.notes} onChange={e => setNewProd(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Notiz (optional)" style={{ ...S.input, marginBottom: '12px' }} />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setView('matrix')} style={S.btn('#E0E0E0', '#555')}>Abbrechen</button>
+                  <button onClick={saveNewProduct} disabled={saving || !newProd.name.trim()} style={{ ...S.btn('#2E7D32'), flex: 1 }}>
+                    {saving ? 'Speichern…' : '✓ Produkt anlegen'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── MANUELLER PREIS ───────────────────────────────────────────── */}
+          {view === 'manual_price' && (
+            <div style={{ padding: '16px' }}>
+              <div style={{ ...S.card, padding: '16px' }}>
+                <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Preis eintragen</p>
+                <select value={manualPrice.product_id} onChange={e => {
+                  const prod = localProducts.find(p => p.id === e.target.value)
+                  setManualPrice(p => ({ ...p, product_id: e.target.value, unit: prod?.unit || 'kg' }))
+                }} style={{ ...S.input, marginBottom: '10px' }}>
+                  <option value="">Produkt wählen…</option>
+                  {CATEGORIES.map(cat => {
+                    const prods = localProducts.filter(p => p.category === cat.key)
+                    if (!prods.length) return null
+                    return <optgroup key={cat.key} label={`${cat.icon} ${cat.label}`}>
+                      {prods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  })}
+                </select>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <div style={{ flex: 2 }}>
+                    <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px' }}>Gesamtpreis (₺)</label>
+                    <input type="number" inputMode="decimal" value={manualPrice.price_tl}
+                      onChange={e => setManualPrice(p => ({ ...p, price_tl: e.target.value }))}
+                      placeholder="0.00" style={S.input} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px' }}>Menge</label>
+                    <input type="number" inputMode="decimal" value={manualPrice.quantity}
+                      onChange={e => setManualPrice(p => ({ ...p, quantity: e.target.value }))}
+                      style={S.input} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px' }}>Einheit</label>
+                    <select value={manualPrice.unit} onChange={e => setManualPrice(p => ({ ...p, unit: e.target.value }))}
+                      style={S.input}>
+                      {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {manualPrice.price_tl && manualPrice.quantity && (
+                  <div style={{ fontSize: '13px', color: '#2E7D32', fontWeight: 600, marginBottom: '10px' }}>
+                    = {fmtPrice(parseFloat(manualPrice.price_tl) / (parseFloat(manualPrice.quantity) || 1))} / {manualPrice.unit}
+                  </div>
+                )}
+                <input type="date" value={manualPrice.date} onChange={e => setManualPrice(p => ({ ...p, date: e.target.value }))}
+                  style={{ ...S.input, marginBottom: '10px' }} />
+                <input value={manualPrice.notes} onChange={e => setManualPrice(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Notiz (optional)" style={{ ...S.input, marginBottom: '10px' }} />
+                <button onClick={() => setManualPrice(p => ({ ...p, is_private: !p.is_private }))}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: `2px solid ${manualPrice.is_private ? '#7B1FA2' : '#E5E0D8'}`, background: manualPrice.is_private ? '#F9F0FF' : '#FFF', color: manualPrice.is_private ? '#7B1FA2' : '#8A7A60', fontWeight: 600, fontSize: '14px', cursor: 'pointer', marginBottom: '12px' }}>
+                  {manualPrice.is_private ? '🏠 Privat (für zuhause)' : '🏢 Geschäftlich'}
+                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setView('matrix')} style={S.btn('#E0E0E0', '#555')}>Abbrechen</button>
+                  <button onClick={saveManualPrice} disabled={saving || !manualPrice.product_id || !manualPrice.price_tl}
+                    style={{ ...S.btn('#2E7D32'), flex: 1 }}>
+                    {saving ? 'Speichern…' : '✓ Preis speichern'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── MATRIX ────────────────────────────────────────────────────── */}
+          {view === 'matrix' && (
+            <div style={{ padding: '12px', paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' }}>
+
+              {/* Geschäftlich/Privat-Filter */}
+              <div style={{ display: 'flex', background: '#F5F2EC', borderRadius: '10px', padding: '3px', marginBottom: '10px', gap: '3px' }}>
+                {(['geschaeftlich', 'alle', 'privat'] as const).map(m => (
+                  <button key={m} onClick={() => setShowPrivat(m)} style={{
+                    flex: 1, padding: '7px 4px', border: 'none', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+                    background: showPrivat === m ? (m === 'privat' ? '#7B1FA2' : m === 'geschaeftlich' ? '#2E7D32' : '#5A5040') : 'transparent',
+                    color: showPrivat === m ? '#FFF' : '#8A7A60', fontWeight: showPrivat === m ? 700 : 400,
+                  }}>
+                    {m === 'geschaeftlich' ? '🏢 Geschäftl.' : m === 'privat' ? '🏠 Privat' : 'Alle'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Kategoriefilter */}
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '12px' }}>
+                <button onClick={() => setSelectedCat(null)}
+                  style={{ ...S.btn(selectedCat === null ? '#1A1207' : '#E5E0D8', selectedCat === null ? '#FFF' : '#555'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: '13px' }}>
+                  Alle
+                </button>
+                {CATEGORIES.map(cat => (
+                  <button key={cat.key} onClick={() => setSelectedCat(selectedCat === cat.key ? null : cat.key)}
+                    style={{ ...S.btn(selectedCat === cat.key ? '#1A1207' : '#E5E0D8', selectedCat === cat.key ? '#FFF' : '#555'), whiteSpace: 'nowrap', padding: '6px 10px', fontSize: '13px' }}>
+                    {cat.icon}
+                  </button>
+                ))}
+              </div>
+
+              {grouped.map(cat => (
+                <div key={cat.key} style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#8A7A60', letterSpacing: '0.05em', marginBottom: '6px', paddingLeft: '4px' }}>
+                    {cat.icon} {cat.label.toUpperCase()}
+                  </div>
+                  {cat.items.length === 0 && !selectedCat && (
+                    <div style={{ color: '#A09880', fontSize: '13px', padding: '8px 4px' }}>Keine Produkte</div>
+                  )}
+                  {cat.items.map(prod => {
+                    const lp = latestPrice(prod.id)
+                    const hist = priceHistory(prod.id)
+                    const isExpanded = expandedProduct === prod.id
+                    const isEditingProd = editingProduct === prod.id
+
+                    return (
+                      <div key={prod.id} style={S.card}>
+                        {/* Produkt-Header */}
+                        {isEditingProd ? (
+                          <div style={{ padding: '12px 14px', background: '#F9F7F4' }}>
+                            <input value={editProductForm.name} onChange={e => setEditProductForm(f => ({ ...f, name: e.target.value }))}
+                              style={{ ...S.input, marginBottom: '8px', fontSize: '14px', fontWeight: 600 }} />
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                              <select value={editProductForm.category} onChange={e => setEditProductForm(f => ({ ...f, category: e.target.value }))}
+                                style={{ ...S.input, flex: 2 }}>
+                                {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
+                              </select>
+                              <select value={editProductForm.unit} onChange={e => setEditProductForm(f => ({ ...f, unit: e.target.value }))}
+                                style={{ ...S.input, flex: 1 }}>
+                                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                              </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button onClick={() => setEditingProduct(null)} style={S.btn('#E0E0E0', '#555')}>Abbrechen</button>
+                              <button onClick={() => saveEditProduct(prod.id)} disabled={saving} style={{ ...S.btn('#2E7D32'), flex: 1 }}>✓ Speichern</button>
+                              <button onClick={() => deleteProduct(prod.id)} style={S.btn('#C62828')}>🗑</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setExpandedProduct(isExpanded ? null : prod.id)}>
+                              <div style={{ fontWeight: 600, fontSize: '15px' }}>{prod.name}</div>
+                              {lp && (
+                                <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>
+                                  {fmtDate(lp.date)} · {lp.quantity} {lp.unit}
+                                  {lp.is_private && <span style={{ color: '#7B1FA2', marginLeft: '4px' }}>🏠</span>}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ textAlign: 'right', cursor: 'pointer' }} onClick={() => setExpandedProduct(isExpanded ? null : prod.id)}>
+                              {lp ? (
+                                <>
+                                  <div style={{ fontWeight: 700, fontSize: '16px', color: '#1A1207' }}>
+                                    {fmtPrice(lp.price_per_unit)}<span style={{ fontSize: '12px', fontWeight: 400 }}>/{lp.unit}</span>
+                                  </div>
+                                  <div style={{ fontSize: '12px', color: '#8A7A60' }}>{fmtPrice(lp.price_tl)} ges.</div>
+                                </>
+                              ) : (
+                                <div style={{ color: '#A09880', fontSize: '13px' }}>kein Preis</div>
+                              )}
+                            </div>
+                            <button onClick={() => startEditProduct(prod)} style={{ background: 'none', border: 'none', fontSize: '16px', cursor: 'pointer', padding: '4px', color: '#8A7A60' }}>✏️</button>
+                            <span style={{ color: '#A09880', fontSize: '14px', cursor: 'pointer' }} onClick={() => setExpandedProduct(isExpanded ? null : prod.id)}>
+                              {isExpanded ? '▲' : '▼'}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Preisverlauf */}
+                        {isExpanded && !isEditingProd && (
+                          <div style={{ borderTop: '1px solid #F0ECE8', background: '#FAFAFA' }}>
+                            <div style={{ padding: '8px 14px 4px', fontSize: '12px', fontWeight: 700, color: '#8A7A60' }}>PREISVERLAUF</div>
+                            {hist.length === 0 && <div style={{ padding: '8px 14px', color: '#A09880', fontSize: '13px' }}>Noch keine Preise erfasst</div>}
+                            {hist.map(p => {
+                              const isEditingThis = editingPrice === p.id
+                              return (
+                                <div key={p.id} style={{ borderBottom: '1px solid #F0ECE8', background: p.is_private ? '#FDF5FF' : undefined }}>
+                                  {isEditingThis ? (
+                                    <div style={{ padding: '10px 14px' }}>
+                                      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                        <div style={{ flex: 2 }}>
+                                          <label style={{ fontSize: '10px', color: '#8A7A60' }}>Gesamtpreis ₺</label>
+                                          <input type="number" value={editPriceForm.price_tl}
+                                            onChange={e => setEditPriceForm(f => ({ ...f, price_tl: e.target.value }))}
+                                            style={{ ...S.input, fontSize: '13px', padding: '6px 8px' }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                          <label style={{ fontSize: '10px', color: '#8A7A60' }}>Menge</label>
+                                          <input type="number" value={editPriceForm.quantity}
+                                            onChange={e => setEditPriceForm(f => ({ ...f, quantity: e.target.value }))}
+                                            style={{ ...S.input, fontSize: '13px', padding: '6px 8px' }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                          <label style={{ fontSize: '10px', color: '#8A7A60' }}>Einheit</label>
+                                          <select value={editPriceForm.unit} onChange={e => setEditPriceForm(f => ({ ...f, unit: e.target.value }))}
+                                            style={{ ...S.input, fontSize: '13px', padding: '6px 8px' }}>
+                                            {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                                          </select>
+                                        </div>
+                                      </div>
+                                      {editPriceForm.price_tl && editPriceForm.quantity && (
+                                        <div style={{ fontSize: '12px', color: '#2E7D32', fontWeight: 600, marginBottom: '6px' }}>
+                                          = {fmtPrice(parseFloat(editPriceForm.price_tl) / (parseFloat(editPriceForm.quantity) || 1))} / {editPriceForm.unit}
+                                        </div>
+                                      )}
+                                      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                                        <input type="date" value={editPriceForm.date}
+                                          onChange={e => setEditPriceForm(f => ({ ...f, date: e.target.value }))}
+                                          style={{ ...S.input, flex: 1, fontSize: '13px', padding: '6px 8px' }} />
+                                        <input value={editPriceForm.notes}
+                                          onChange={e => setEditPriceForm(f => ({ ...f, notes: e.target.value }))}
+                                          placeholder="Notiz" style={{ ...S.input, flex: 1, fontSize: '13px', padding: '6px 8px' }} />
+                                      </div>
+                                      <button onClick={() => setEditPriceForm(f => ({ ...f, is_private: !f.is_private }))}
+                                        style={{ width: '100%', padding: '6px', borderRadius: '8px', border: `1px solid ${editPriceForm.is_private ? '#7B1FA2' : '#E5E0D8'}`, background: editPriceForm.is_private ? '#F9F0FF' : '#FFF', color: editPriceForm.is_private ? '#7B1FA2' : '#8A7A60', fontWeight: 600, fontSize: '12px', cursor: 'pointer', marginBottom: '8px' }}>
+                                        {editPriceForm.is_private ? '🏠 Privat' : '🏢 Geschäftlich'}
+                                      </button>
+                                      <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button onClick={() => setEditingPrice(null)} style={{ ...S.btn('#E0E0E0', '#555'), flex: 1, padding: '6px' }}>Abbrechen</button>
+                                        <button onClick={() => saveEditPrice(p.id)} disabled={saving} style={{ ...S.btn('#2E7D32'), flex: 2, padding: '6px' }}>✓ Speichern</button>
+                                        <button onClick={() => deletePrice(p.id)} style={{ ...S.btn('#C62828'), padding: '6px 10px' }}>🗑</button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                                      <div>
+                                        <span style={{ color: '#555' }}>{fmtDate(p.date)}</span>
+                                        <span style={{ color: '#A09880', marginLeft: '8px' }}>{p.quantity} {p.unit}</span>
+                                        {p.source === 'scan' && <span style={{ color: '#1565C0', marginLeft: '4px', fontSize: '11px' }}>📷</span>}
+                                        {p.is_private && <span style={{ color: '#7B1FA2', marginLeft: '4px', fontSize: '11px' }}>🏠</span>}
+                                        {p.notes && <span style={{ color: '#A09880', marginLeft: '4px', fontSize: '11px' }}>{p.notes}</span>}
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ textAlign: 'right' }}>
+                                          <div style={{ fontWeight: 600 }}>{fmtPrice(p.price_per_unit)}/{p.unit}</div>
+                                          <div style={{ fontSize: '11px', color: '#8A7A60' }}>{fmtPrice(p.price_tl)}</div>
+                                        </div>
+                                        <button onClick={() => startEditPrice(p)} style={{ background: 'none', border: 'none', fontSize: '14px', cursor: 'pointer', color: '#8A7A60', padding: '4px' }}>✏️</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                            <div style={{ padding: '8px 14px' }}>
+                              <button onClick={() => { setManualPrice(p => ({ ...p, product_id: prod.id, unit: prod.unit, date: new Date().toISOString().slice(0,10) })); setView('manual_price') }}
+                                style={S.btn('#2E7D32', '#FFF')}>+ Preis eintragen</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+
+              {localProducts.length === 0 && (
+                <div style={{ textAlign: 'center', color: '#A09880', padding: '40px 20px' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>🛒</div>
+                  <div style={{ fontWeight: 600 }}>Noch keine Produkte</div>
+                  <div style={{ fontSize: '13px', marginTop: '6px' }}>Scanne einen Beleg oder lege Produkte manuell an</div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
