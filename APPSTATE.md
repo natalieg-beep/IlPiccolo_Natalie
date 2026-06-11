@@ -316,6 +316,8 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 | patch20_complete | expense_categories (19 Kat.) + expenses Tabelle | ✅ |
 | patch21_import_investitionen | 128 Einträge aus Investitionskosten.xlsx importiert | ✅ |
 | patch21b_fix_date | expenses.date nullable | ✅ |
+| patch22_rezepte | menu_items + recipe_ingredients + recipe_product_assignments + privat-Kategorie | ✅ |
+| patch23_menu_rezepte | 15 Pizzen + Getränke/Extras + alle Rezepturen aus Excel | ✅ |
 
 ### Ausgaben-Datenbankstand (09.06.2026)
 - `suppliers`: 98 Händler
@@ -333,17 +335,12 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 ---
 
 ## Nächste Schritte
-1. **UI Ausgaben**: Tab "Investitionen & Fixkosten" in `/management/ausgaben` bauen
-   - Übersicht aller expenses nach Kategorie + Monat
-   - Manuell erfassen (mit Zahlungsart offiziell/bar/schwarz)
-   - Scan-Button für Belege (mode=expense, ETTN-Duplikat-Warnung)
-   - Amortisations-Ansicht (monatlicher Anteil)
+1. **Rezepte**: Produkte den Zutaten zuweisen → Preiskalkulation aktivieren (`/management/rezepte`)
 2. **purchase_prices**: alte Preise löschen → Belege neu hochladen mit echtem Datum + Händler
 3. **Laufende Kosten nacherfassen**: Gas, Strom, Wasser (Beträge noch offen)
-4. **Fixkosten-Seite**: noch keine Funktion (ausgegraut)
-5. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
-6. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
-7. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
+4. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
+5. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
+6. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
 
 ---
 
