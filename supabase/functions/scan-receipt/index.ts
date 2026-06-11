@@ -63,9 +63,10 @@ Regeln für items:
     Mozza 3×125g 150₺         → quantity:375 unit:"g"    (= 0,40₺/g)
     Olivenöl 2L Flasche 120₺  → quantity:2   unit:"L"    (= 60₺/L)
 - Wenn Gebindegröße nicht erkennbar → quantity=1, unit="Pkg", notes="Gebinde"
-- IGNORIERE vollständig: Depozit, Güvence, Kaution (Pfand auf Flaschen) — nicht im Array
+- IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand — sowie alle Zeilen mit "BOS", "BOS KOMPLE", "DPZ", "AMBALAJ" (Leergut/leere Kisten/Flaschen-Depot) — nicht im Array
 - IGNORIERE: Summen, MwSt/KDV, Rabatte, Zahlungsinfos
 - Wenn Einheit unklar → "Stk"
+- Produktname: Schreibe einen lesbaren Namen (z.B. "Cola 330ml Dose", "Damla Wasser 330ml"). Leite Mengenangaben NICHT aus Produktcodes ab (z.B. "RB300" ist ein Code, nicht zwingend 300ml) — nutze nur explizit ausgeschriebene Größen im Produktnamen (z.B. "330ML" im Text "DAM MN.OWB 330ML")
 - ZUSAMMENFASSEN: Erscheint dasselbe Produkt mehrfach als einzelne Zeilen, fasse sie zu EINEM item zusammen:
     Wasser 10₺ / Wasser 10₺ / Wasser 10₺  →  name:"Wasser", quantity:3, price_tl:30
     (quantity aufsummieren, price_tl aufsummieren, NICHT mehrere Einträge)
