@@ -1,8 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import AusgabenPage from './AusgabenPageClient'
 
 export default async function Page() {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const [
     { data: products },
