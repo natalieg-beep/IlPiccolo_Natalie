@@ -35,10 +35,12 @@ type Product = {
 type Price = {
   id: string; product_id: string; price_tl: number; quantity: number; unit: string
   price_per_unit: number; date: string; source: string; receipt_ref: string | null; notes: string | null
+  is_private: boolean
 }
 type ScannedItem = {
   name: string; price_tl: number; quantity: number; unit: string; category_hint: string; notes: string
   matched_product_id?: string; is_new_product?: boolean; new_product_name?: string; new_product_category?: string
+  is_private?: boolean
 }
 
 function fmtPrice(n: number) {
@@ -51,19 +53,11 @@ function fmtDate(d: string) {
 export default function AusgabenClient({ products, allPrices }: { products: Product[]; allPrices: Price[] }) {
   const supabase = createClient()
 
-  // Letzter Preis pro Produkt
-  const latestPrice = useCallback((productId: string) => {
-    return allPrices.find(p => p.product_id === productId) ?? null
-  }, [allPrices])
-
-  const priceHistory = useCallback((productId: string) => {
-    return allPrices.filter(p => p.product_id === productId).slice(0, 10)
-  }, [allPrices])
-
   // State
   const [view, setView] = useState<'matrix' | 'scan' | 'manual_product' | 'manual_price'>('matrix')
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
+  const [showPrivat, setShowPrivat] = useState<'alle' | 'geschaeftlich' | 'privat'>('geschaeftlich')
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [scannedItems, setScannedItems] = useState<ScannedItem[] | null>(null)
@@ -72,10 +66,23 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Letzter Preis pro Produkt (gefiltert nach privat/geschäftlich)
+  const latestPrice = useCallback((productId: string) => {
+    return localPrices.find(p => p.product_id === productId &&
+      (showPrivat === 'alle' || (showPrivat === 'privat' ? p.is_private : !p.is_private))
+    ) ?? null
+  }, [localPrices, showPrivat])
+
+  const priceHistory = useCallback((productId: string) => {
+    return localPrices.filter(p => p.product_id === productId &&
+      (showPrivat === 'alle' || (showPrivat === 'privat' ? p.is_private : !p.is_private))
+    ).slice(0, 10)
+  }, [localPrices, showPrivat])
+
   // Neues Produkt
   const [newProd, setNewProd] = useState({ name: '', category: 'molkerei', unit: 'kg', notes: '' })
   // Neuer Preis manuell
-  const [manualPrice, setManualPrice] = useState({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0,10), notes: '' })
+  const [manualPrice, setManualPrice] = useState({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0,10), notes: '', is_private: false })
 
   // --- Scan ---
   async function handleFile(file: File) {
@@ -157,6 +164,7 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
           unit: item.unit,
           date,
           source: 'scan',
+          is_private: item.is_private ?? false,
         }).select().single()
         if (newPrice) setLocalPrices(prev => [newPrice, ...prev])
       }
@@ -192,11 +200,12 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
       date: manualPrice.date,
       source: 'manual',
       notes: manualPrice.notes || null,
+      is_private: manualPrice.is_private,
     }).select().single()
     if (data) setLocalPrices(prev => [data, ...prev])
     setSaving(false)
     setView('matrix')
-    setManualPrice({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0,10), notes: '' })
+    setManualPrice({ product_id: '', price_tl: '', quantity: '1', unit: 'kg', date: new Date().toISOString().slice(0,10), notes: '', is_private: false })
   }
 
   // --- Grouped products ---
@@ -259,25 +268,78 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
 
           {scannedItems && (
             <div style={S.card}>
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E0D8', fontWeight: 600 }}>
-                {scannedItems.length} Produkte erkannt
-              </div>
-              {scannedItems.map((item, i) => (
-                <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #F0ECE8', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '14px' }}>{item.name}</div>
-                    <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>
-                      {item.quantity} {item.unit} · {item.category_hint}
-                      {item.is_new_product && <span style={{ color: '#1565C0', marginLeft: '6px' }}>✦ neu</span>}
-                      {!item.is_new_product && <span style={{ color: '#2E7D32', marginLeft: '6px' }}>✓ bekannt</span>}
-                    </div>
-                    {item.notes && <div style={{ fontSize: '11px', color: '#A09880', marginTop: '2px' }}>{item.notes}</div>}
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: '15px', whiteSpace: 'nowrap' }}>{fmtPrice(item.price_tl)}</div>
-                  <button onClick={() => setScannedItems(prev => prev!.filter((_, j) => j !== i))}
-                    style={{ background: 'none', border: 'none', color: '#C62828', fontSize: '16px', cursor: 'pointer', padding: '0 4px' }}>✕</button>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E0D8' }}>
+                <div style={{ fontWeight: 600 }}>{scannedItems.length} Produkte erkannt</div>
+                <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>
+                  Mengen und Einheiten prüfen · Privat-Items markieren
                 </div>
-              ))}
+                {scannedItems.some(i => i.is_private) && (
+                  <div style={{ fontSize: '12px', marginTop: '4px', display: 'flex', gap: '12px' }}>
+                    <span style={{ color: '#2E7D32' }}>🏢 Geschäftlich: {fmtPrice(scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
+                    <span style={{ color: '#7B1FA2' }}>🏠 Privat: {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
+                  </div>
+                )}
+              </div>
+              {scannedItems.map((item, i) => {
+                const perUnit = item.quantity > 0 ? item.price_tl / item.quantity : 0
+                return (
+                  <div key={i} style={{
+                    padding: '10px 16px', borderBottom: '1px solid #F0ECE8',
+                    background: item.is_private ? '#F9F0FF' : undefined,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '14px' }}>{item.name}</div>
+                        <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '1px' }}>
+                          {item.category_hint}
+                          {item.is_new_product && <span style={{ color: '#1565C0', marginLeft: '6px' }}>✦ neu</span>}
+                          {!item.is_new_product && <span style={{ color: '#2E7D32', marginLeft: '6px' }}>✓ bekannt</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => setScannedItems(prev => prev!.filter((_, j) => j !== i))}
+                        style={{ background: 'none', border: 'none', color: '#C62828', fontSize: '16px', cursor: 'pointer', padding: '0 4px', flexShrink: 0 }}>✕</button>
+                    </div>
+                    {/* Editierbare Felder */}
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
+                        <span style={{ fontSize: '11px', color: '#8A7A60' }}>Ges.preis</span>
+                        <input
+                          type="number" inputMode="decimal" value={item.price_tl}
+                          onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, price_tl: parseFloat(e.target.value) || 0 } : it))}
+                          style={{ width: '64px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }}
+                        />
+                        <span style={{ fontSize: '11px', color: '#8A7A60' }}>₺</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
+                        <input
+                          type="number" inputMode="decimal" value={item.quantity}
+                          onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, quantity: parseFloat(e.target.value) || 1 } : it))}
+                          style={{ width: '44px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }}
+                        />
+                        <select value={item.unit}
+                          onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, unit: e.target.value } : it))}
+                          style={{ border: 'none', background: 'transparent', fontSize: '13px', color: '#5A5040' }}>
+                          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      {item.quantity > 0 && (
+                        <span style={{ fontSize: '12px', color: '#5A5040', fontWeight: 600 }}>
+                          = {fmtPrice(perUnit)}/{item.unit}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, is_private: !it.is_private } : it))}
+                        style={{
+                          marginLeft: 'auto', border: 'none', borderRadius: '20px', padding: '4px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                          background: item.is_private ? '#7B1FA2' : '#E5E0D8',
+                          color: item.is_private ? '#FFF' : '#8A7A60',
+                        }}>
+                        {item.is_private ? '🏠 Privat' : '🏢 Geschäftl.'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
               <div style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
                 <button onClick={() => { setScannedItems(null); setView('matrix') }} style={S.btn('#E0E0E0', '#555')}>Verwerfen</button>
                 <button onClick={saveScannedItems} disabled={saving} style={{ ...S.btn('#2E7D32'), flex: 1 }}>
@@ -365,7 +427,12 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
             <input type="date" value={manualPrice.date} onChange={e => setManualPrice(p => ({ ...p, date: e.target.value }))}
               style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '15px', marginBottom: '10px', boxSizing: 'border-box' }} />
             <input value={manualPrice.notes} onChange={e => setManualPrice(p => ({ ...p, notes: e.target.value }))}
-              placeholder="Notiz (optional)" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '14px', boxSizing: 'border-box', marginBottom: '12px' }} />
+              placeholder="Notiz (optional)" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' }} />
+            <button
+              onClick={() => setManualPrice(p => ({ ...p, is_private: !p.is_private }))}
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', border: `2px solid ${manualPrice.is_private ? '#7B1FA2' : '#E5E0D8'}`, background: manualPrice.is_private ? '#F9F0FF' : '#FFF', color: manualPrice.is_private ? '#7B1FA2' : '#8A7A60', fontWeight: 600, fontSize: '14px', cursor: 'pointer', marginBottom: '12px' }}>
+              {manualPrice.is_private ? '🏠 Privat (für zuhause)' : '🏢 Geschäftlich'}
+            </button>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={() => setView('matrix')} style={S.btn('#E0E0E0', '#555')}>Abbrechen</button>
               <button onClick={saveManualPrice} disabled={saving || !manualPrice.product_id || !manualPrice.price_tl}
@@ -380,6 +447,20 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
       {/* === MATRIX VIEW === */}
       {view === 'matrix' && (
         <div style={{ padding: '12px' }}>
+          {/* Geschäftlich/Privat-Filter */}
+          <div style={{ display: 'flex', background: '#F5F2EC', borderRadius: '10px', padding: '3px', marginBottom: '10px', gap: '3px' }}>
+            {(['geschaeftlich', 'alle', 'privat'] as const).map(m => (
+              <button key={m} onClick={() => setShowPrivat(m)} style={{
+                flex: 1, padding: '7px 4px', border: 'none', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+                background: showPrivat === m ? (m === 'privat' ? '#7B1FA2' : m === 'geschaeftlich' ? '#2E7D32' : '#5A5040') : 'transparent',
+                color: showPrivat === m ? '#FFF' : '#8A7A60',
+                fontWeight: showPrivat === m ? 700 : 400,
+              }}>
+                {m === 'geschaeftlich' ? '🏢 Geschäftl.' : m === 'privat' ? '🏠 Privat' : 'Alle'}
+              </button>
+            ))}
+          </div>
+
           {/* Kategoriefilter */}
           <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '12px' }}>
             <button onClick={() => setSelectedCat(null)}
@@ -437,11 +518,12 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
                         <div style={{ padding: '8px 14px 4px', fontSize: '12px', fontWeight: 700, color: '#8A7A60' }}>PREISVERLAUF</div>
                         {hist.length === 0 && <div style={{ padding: '8px 14px', color: '#A09880', fontSize: '13px' }}>Noch keine Preise erfasst</div>}
                         {hist.map(p => (
-                          <div key={p.id} style={{ padding: '6px 14px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px solid #F0ECE8' }}>
+                          <div key={p.id} style={{ padding: '6px 14px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px solid #F0ECE8', background: p.is_private ? '#FDF5FF' : undefined }}>
                             <div>
                               <span style={{ color: '#555' }}>{fmtDate(p.date)}</span>
                               <span style={{ color: '#A09880', marginLeft: '8px' }}>{p.quantity} {p.unit}</span>
                               {p.source === 'scan' && <span style={{ color: '#1565C0', marginLeft: '6px', fontSize: '11px' }}>📷</span>}
+                              {p.is_private && <span style={{ color: '#7B1FA2', marginLeft: '6px', fontSize: '11px' }}>🏠 privat</span>}
                               {p.notes && <span style={{ color: '#A09880', marginLeft: '6px', fontSize: '11px' }}>{p.notes}</span>}
                             </div>
                             <div style={{ fontWeight: 600 }}>

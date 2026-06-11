@@ -45,17 +45,23 @@ Für jedes Produkt:
 {
   "name": "Produktname auf Deutsch wenn möglich, sonst Türkisch",
   "price_tl": <Gesamtpreis in TL als Zahl>,
-  "quantity": <Menge als Zahl, z.B. 5 für 5kg>,
+  "quantity": <Anzahl der EINZELNEN Einheiten als Zahl>,
   "unit": <"kg" | "g" | "Stk" | "L" | "ml" | "Pkg">,
   "category_hint": <"molkerei" | "wurst" | "mehl" | "gemuese" | "getraenke" | "backen" | "verpackung" | "reinigung" | "sonstiges">,
   "notes": "<kurze Notiz wenn hilfreich, sonst leerer String>"
 }
 
 Regeln:
-- Preis ist IMMER der Gesamtpreis für die angegebene Menge (nicht Stückpreis)
-- Mengen von Belegen exakt übernehmen (5kg → quantity:5 unit:kg)
+- Preis ist IMMER der Gesamtpreis für alle Einzeleinheiten zusammen
+- Menge = ANZAHL DER EINZELSTÜCKE, nicht Kartons/Kisten/Gebinde:
+    Cola Kiste 24×0,5L 480₺  → quantity:24  unit:"Stk"  (= 20₺/Stk)
+    Mehl 5×1kg Sack 250₺     → quantity:5   unit:"kg"   (= 50₺/kg)
+    Mozza 3×125g 150₺         → quantity:375 unit:"g"    (= 0,40₺/g)
+    Olivenöl 2L Flasche 120₺  → quantity:2   unit:"L"    (= 60₺/L)
+- Wenn Gebindegröße nicht erkennbar → quantity=1, unit="Pkg", notes="Gebinde"
+- IGNORIERE vollständig: Depozit, Güvence, Kaution (Pfand auf Flaschen) — nicht im Array
+- IGNORIERE: Summen, MwSt/KDV, Rabatte, Zahlungsinfos
 - Wenn Einheit unklar → "Stk"
-- Ignoriere: Summen, MwSt, Rabatte, Zahlungsinfos
 - Sortiere nach Kategorie`
 
 const EXPENSE_PROMPT = `Du bist ein Assistent, der türkische Rechnungen und Belege liest.

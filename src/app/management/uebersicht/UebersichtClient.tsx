@@ -256,7 +256,9 @@ export default function UebersichtClient({
               const st      = statusLabel[order.status] ?? statusLabel.closed
               const time    = new Date(order.opened_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
               const isPrivatOrder = order.tables?.location === 'privat'
-              const isSchwarz = (order.payment_method === 'schwarz' || order.payment_method === 'schwarz_bar') && !isPrivatOrder
+              const isGratis    = order.payment_method === 'schwarz' && !isPrivatOrder   // zahlt gar nichts
+              const isSchwarzBar = order.payment_method === 'schwarz_bar' && !isPrivatOrder // zahlt bar
+              const isSchwarz   = isGratis || isSchwarzBar                                  // beides: grüne Markierung
               const childrenChips = (order.children_info ?? '').split(',').filter(Boolean).map(v => childrenLabel[v] ?? '').join(' ')
 
               return (
@@ -286,7 +288,7 @@ export default function UebersichtClient({
                           <div style={{ fontSize: '10px', color: '#8A7A60', textDecoration: 'line-through', textAlign: 'right' }}>{gross} ₺</div>
                         )}
                         <span style={{ fontSize: '14px', fontWeight: '700', color: isSchwarz ? '#2E7D32' : '#B8882A' }}>
-                          {isSchwarz ? `${gross} ₺ 🤝` : `${charged} ₺`}
+                          {isGratis ? `${gross} ₺ 🎁` : isSchwarzBar ? `${charged} ₺ 🤝` : `${charged} ₺`}
                         </span>
                       </div>
                       <Link href={`/management/order/${order.id}`}>

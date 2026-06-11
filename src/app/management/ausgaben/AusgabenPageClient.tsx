@@ -6,7 +6,7 @@ import AusgabenClient from './AusgabenClient'
 import KostenClient, { type ExpenseCategory, type Expense, type Supplier } from './KostenClient'
 
 type Product  = { id: string; name: string; category: string; unit: string; notes: string | null; active: boolean }
-type Price    = { id: string; product_id: string; price_tl: number; quantity: number; unit: string; price_per_unit: number; date: string; source: string; receipt_ref: string | null; notes: string | null }
+type Price    = { id: string; product_id: string; price_tl: number; quantity: number; unit: string; price_per_unit: number; date: string; source: string; receipt_ref: string | null; notes: string | null; is_private: boolean }
 
 export default function AusgabenPageClient({
   products, allPrices, categories, expenses, suppliers,

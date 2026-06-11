@@ -386,7 +386,61 @@ export default function KostenClient({
           )
         })}
 
-        {activeCats.length === 0 && (
+        {/* Nicht kategorisierte Ausgaben */}
+        {(() => {
+          const uncategorized = filteredExpenses().filter(e => !e.category_id)
+          if (uncategorized.length === 0) return null
+          const total = viewMode === 'gesamt'
+            ? uncategorized.reduce((s, e) => s + e.amount_gross, 0)
+            : uncategorized.reduce((s, e) => s + monthlyShare(e, selMonth) + (isInMonth(e, selMonth) ? e.amount_gross : 0), 0)
+          if (total === 0 && viewMode === 'monatlich') return null
+          const isOpen = expandedCat === '__uncategorized__'
+          return (
+            <div style={{ ...S.card, border: '1px dashed #E5B97A' }}>
+              <div onClick={() => setExpandedCat(isOpen ? null : '__uncategorized__')}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '20px' }}>📂</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '14px', color: '#1A1207' }}>Nicht kategorisiert</div>
+                    <div style={{ fontSize: '11px', color: '#E65100' }}>{uncategorized.length} Einträge ohne Kategorie</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 800, fontSize: '15px', color: '#B8882A' }}>{fmtTL(total)}</div>
+                  <div style={{ fontSize: '14px' }}>{isOpen ? '▲' : '▼'}</div>
+                </div>
+              </div>
+              {isOpen && (
+                <div style={{ marginTop: '10px', borderTop: '1px solid #F0EDE8', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {uncategorized.map(e => {
+                    const pt = PAYMENT_LABEL[e.payment_type] ?? PAYMENT_LABEL.offiziell
+                    const supplier = supplierById(e.supplier_id)
+                    return (
+                      <div key={e.id} style={{ background: '#FAFAF8', borderRadius: '8px', padding: '10px', fontSize: '13px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, color: '#1A1207' }}>{e.description ?? '—'}</div>
+                            {supplier && <div style={{ color: '#8A7A60', fontSize: '11px' }}>{supplier.name}</div>}
+                            <div style={{ color: '#8A7A60', fontSize: '11px', marginTop: '2px' }}>{fmtDate(e.date)}</div>
+                          </div>
+                          <div style={{ fontWeight: 700, color: '#1A1207', marginLeft: '8px' }}>{fmtTL(e.amount_gross)}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: pt.bg, color: pt.color, fontWeight: 600 }}>{pt.label}</span>
+                          {!e.has_receipt && <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#FFF3E0', color: '#E65100' }}>kein Beleg</span>}
+                          {e.notes && <span style={{ fontSize: '11px', color: '#8A7A60', fontStyle: 'italic' }}>{e.notes}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
+        {activeCats.length === 0 && filteredExpenses().filter(e => !e.category_id).length === 0 && (
           <div style={{ textAlign: 'center', color: '#8A7A60', padding: '40px 0' }}>
             Keine Ausgaben für diesen Filter gefunden.
           </div>

@@ -1,6 +1,27 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-08 | Letzter Commit: siehe git log**
+**Stand: 2026-06-11 | Letzter Commit: siehe git log**
+
+## Letzte Änderungen (11.06.2026)
+
+### Bug-Fix: Bestellübersicht schwarz_bar-Anzeige
+- ✅ **`UebersichtClient.tsx`** — Betragsanzeige war falsch für `schwarz_bar`-Orders
+  - `isSchwarz` war bisher true für BEIDE: `schwarz` (gratis) UND `schwarz_bar` (Freunde zahlen bar)
+  - Beide zeigten `gross` (alle Items inkl. `on_the_house`) statt korrektem Betrag → z.B. 840 statt 580 ₺
+  - **Fix**: drei getrennte Variablen:
+    - `isGratis` = `payment_method === 'schwarz'` → zeigt `gross` mit 🎁 (was verschenkt wurde)
+    - `isSchwarzBar` = `payment_method === 'schwarz_bar'` → zeigt `charged` mit 🤝 (was Freunde zahlen)
+    - `isSchwarz` = `isGratis || isSchwarzBar` (für grüne Farbgebung)
+
+### Berechnungslogiken (Bestellübersicht)
+- **`orderGross(o)`**: Σ(unit_price × qty) ohne on_the_house-Items — für Tagesübersicht
+- **`orderRevenue(o)`**: 0 wenn schwarz/privat; sonst base × (1−discount%) − discount_amount (ohne on_the_house)
+- **`gross` (Karte lokal)**: Σ ALLER Items inkl. on_the_house → Originalpreis durchgestrichen
+- **`charged` (Karte lokal)**: = orderRevenue → was tatsächlich bezahlt wird
+- **`schwarzTotal`**: Σ orderGross für alle schwarz+schwarz_bar Orders → was Freunde konsumiert haben
+
+### Ayran
+- Preis war bereits korrekt auf 50 ₺ in `src/lib/menu.ts` — keine Änderung nötig
 
 ## Letzte Änderungen (08.06.2026)
 - ✅ **Global Bottom-Navigation**: fixe Tab-Bar auf allen Seiten (Küche / Service / Management)
@@ -335,9 +356,9 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 ---
 
 ## Nächste Schritte
-1. **Rezepte**: Produkte den Zutaten zuweisen → Preiskalkulation aktivieren (`/management/rezepte`)
-2. **purchase_prices**: alte Preise löschen → Belege neu hochladen mit echtem Datum + Händler
-3. **Laufende Kosten nacherfassen**: Gas, Strom, Wasser (Beträge noch offen)
+1. **Rezepte** (`/management/rezepte`): Produkte den Zutaten zuweisen → Preiskalkulation aktivieren
+2. **Laufende Kosten nacherfassen**: Gas, Strom, Wasser (Beträge noch offen)
+3. **Belege hochladen**: purchase_prices alte Einträge bereinigen, echte Belege per Scan eintragen
 4. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
 5. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
 6. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
