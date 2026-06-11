@@ -229,7 +229,15 @@ function AuswertungView({ prices, products }: { prices: Price[]; products: Produ
 
 // ─── HAUPTKOMPONENTE ──────────────────────────────────────────────────────────
 
-export default function AusgabenClient({ products, allPrices }: { products: Product[]; allPrices: Price[] }) {
+type Supplier = { id: string; name: string; category: string }
+
+const SUPPLIER_CATS: Record<string, string> = {
+  supermarkt: '🏪 Supermarkt', lieferant: '🚚 Lieferant',
+  handwerker: '🔧 Handwerker', sonstiges: '📦 Sonstiges',
+  behoerde: '🏛️ Behörde', telekommunikation: '📡 Telekom',
+}
+
+export default function AusgabenClient({ products, allPrices, suppliers }: { products: Product[]; allPrices: Price[]; suppliers: Supplier[] }) {
   const supabase = createClient()
 
   // State
@@ -241,6 +249,8 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [scannedItems, setScannedItems] = useState<ScannedItem[] | null>(null)
+  const [scanSupplierId, setScanSupplierId] = useState<string>('')
+  const [scanDate, setScanDate] = useState<string>(new Date().toISOString().slice(0, 10))
   const [saving, setSaving] = useState(false)
   const [localProducts, setLocalProducts] = useState<Product[]>(products)
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
@@ -326,7 +336,6 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
     if (!scannedItems) return
     setSaving(true)
     try {
-      const date = new Date().toISOString().slice(0, 10)
       for (const item of scannedItems) {
         let productId = item.matched_product_id
         if (item.is_new_product && item.new_product_name) {
@@ -339,12 +348,20 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
         }
         if (!productId) continue
         const { data: newPrice } = await supabase.from('purchase_prices').insert({
-          product_id: productId, price_tl: item.price_tl, quantity: item.quantity,
-          unit: item.unit, date, source: 'scan', is_private: item.is_private ?? false,
+          product_id: productId,
+          price_tl: item.price_tl,
+          quantity: item.quantity,
+          unit: item.unit,
+          date: scanDate,
+          source: 'scan',
+          is_private: item.is_private ?? false,
+          supplier_id: scanSupplierId || null,
         }).select().single()
         if (newPrice) setLocalPrices(prev => [newPrice as Price, ...prev])
       }
       setScannedItems(null)
+      setScanSupplierId('')
+      setScanDate(new Date().toISOString().slice(0, 10))
       setView('matrix')
     } finally {
       setSaving(false)
@@ -525,13 +542,55 @@ export default function AusgabenClient({ products, allPrices }: { products: Prod
 
               {scannedItems && (
                 <div style={S.card}>
-                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E0D8' }}>
-                    <div style={{ fontWeight: 600 }}>{scannedItems.length} Produkte erkannt</div>
-                    <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '2px' }}>Mengen prüfen · Privat-Items markieren</div>
+                  {/* ── Händler + Datum ── */}
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E0D8', background: '#F9F7F4' }}>
+                    <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '10px' }}>
+                      {scannedItems.length} Produkte erkannt
+                    </div>
+
+                    {/* Händler */}
+                    <div style={{ marginBottom: '8px' }}>
+                      <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+                        🏪 Händler (wo eingekauft?)
+                      </label>
+                      <select
+                        value={scanSupplierId}
+                        onChange={e => setScanSupplierId(e.target.value)}
+                        style={{ width: '100%', padding: '9px 10px', borderRadius: '8px', border: `1.5px solid ${scanSupplierId ? '#2E7D32' : '#E5E0D8'}`, fontSize: '14px', background: '#FFF', color: scanSupplierId ? '#1A1207' : '#A09880' }}>
+                        <option value="">— Händler wählen (optional) —</option>
+                        {(['supermarkt', 'lieferant', 'sonstiges'] as const).map(cat => {
+                          const grouped = suppliers.filter(s => s.category === cat).sort((a, b) => a.name.localeCompare(b.name))
+                          if (!grouped.length) return null
+                          return (
+                            <optgroup key={cat} label={SUPPLIER_CATS[cat] ?? cat}>
+                              {grouped.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </optgroup>
+                          )
+                        })}
+                      </select>
+                    </div>
+
+                    {/* Datum */}
+                    <div style={{ marginBottom: '8px' }}>
+                      <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+                        📅 Einkaufsdatum
+                      </label>
+                      <input
+                        type="date"
+                        value={scanDate}
+                        onChange={e => setScanDate(e.target.value)}
+                        style={{ width: '100%', padding: '9px 10px', borderRadius: '8px', border: '1.5px solid #E5E0D8', fontSize: '14px', background: '#FFF', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    {/* Split-Anzeige */}
+                    <div style={{ fontSize: '12px', color: '#8A7A60', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <span>Mengen + Einheiten prüfen · 🏢/🏠 pro Zeile markieren</span>
+                    </div>
                     {scannedItems.some(i => i.is_private) && (
                       <div style={{ fontSize: '12px', marginTop: '4px', display: 'flex', gap: '12px' }}>
-                        <span style={{ color: '#2E7D32' }}>🏢 {fmtPrice(scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
-                        <span style={{ color: '#7B1FA2' }}>🏠 {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
+                        <span style={{ color: '#2E7D32', fontWeight: 600 }}>🏢 {fmtPrice(scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
+                        <span style={{ color: '#7B1FA2', fontWeight: 600 }}>🏠 {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
                       </div>
                     )}
                   </div>

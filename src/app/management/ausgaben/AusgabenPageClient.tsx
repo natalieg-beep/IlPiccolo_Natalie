@@ -46,7 +46,7 @@ export default function AusgabenPageClient({
 
       {/* Content */}
       {tab === 'einkauf'
-        ? <AusgabenClient products={products} allPrices={allPrices} />
+        ? <AusgabenClient products={products} allPrices={allPrices} suppliers={suppliers} />
         : <KostenClient categories={categories} expenses={expenses} suppliers={suppliers} />
       }
     </div>
