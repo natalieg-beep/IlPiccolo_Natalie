@@ -618,7 +618,8 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                           <button onClick={() => setScannedItems(prev => prev!.filter((_, j) => j !== i))}
                             style={{ background: 'none', border: 'none', color: '#C62828', fontSize: '16px', cursor: 'pointer', padding: '0 4px', flexShrink: 0 }}>✕</button>
                         </div>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* Preis + Menge */}
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
                             <span style={{ fontSize: '11px', color: '#8A7A60' }}>Ges.</span>
                             <input type="number" inputMode="decimal" value={item.price_tl}
@@ -637,11 +638,20 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                             </select>
                           </div>
                           {item.quantity > 0 && <span style={{ fontSize: '12px', color: '#2E7D32', fontWeight: 600 }}>{fmtPrice(perUnit)}/{item.unit}</span>}
-                          <button onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, is_private: !it.is_private } : it))}
-                            style={{ marginLeft: 'auto', border: 'none', borderRadius: '20px', padding: '4px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', background: item.is_private ? '#7B1FA2' : '#E5E0D8', color: item.is_private ? '#FFF' : '#8A7A60' }}>
-                            {item.is_private ? '🏠 Privat' : '🏢 Geschäftl.'}
-                          </button>
                         </div>
+                        {/* Privat/Geschäftlich-Toggle — eigene Zeile, gut sichtbar */}
+                        <button
+                          onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, is_private: !it.is_private } : it))}
+                          style={{
+                            width: '100%', padding: '9px', border: 'none', borderRadius: '8px',
+                            fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                            background: item.is_private ? '#EDE7F6' : '#E8F5E9',
+                            color: item.is_private ? '#6A1B9A' : '#2E7D32',
+                            borderLeft: `4px solid ${item.is_private ? '#7B1FA2' : '#2E7D32'}`,
+                            textAlign: 'left',
+                          }}>
+                          {item.is_private ? '🏠 Privat — für zuhause' : '🏢 Geschäftlich — fürs Restaurant'}
+                        </button>
                       </div>
                     )
                   })}
