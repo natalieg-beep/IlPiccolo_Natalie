@@ -668,6 +668,29 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                       </div>
                     )
                   })}
+                  {/* ── Kontroll-Summe ── */}
+                  {(() => {
+                    const total = scannedItems.reduce((s, i) => s + i.price_tl, 0)
+                    const totalBiz = scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0)
+                    const totalPriv = scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0)
+                    return (
+                      <div style={{ margin: '0 12px 4px', background: '#F5F2EC', borderRadius: '10px', padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: totalPriv > 0 ? '8px' : 0 }}>
+                          <span style={{ fontSize: '13px', color: '#5A5040', fontWeight: 600 }}>Summe Rechnung</span>
+                          <span style={{ fontSize: '18px', fontWeight: 800, color: '#1A1207' }}>{fmtPrice(total)}</span>
+                        </div>
+                        {totalPriv > 0 && (
+                          <div style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
+                            <span style={{ color: '#2E7D32' }}>🏢 {fmtPrice(totalBiz)}</span>
+                            <span style={{ color: '#7B1FA2' }}>🏠 {fmtPrice(totalPriv)}</span>
+                          </div>
+                        )}
+                        <div style={{ fontSize: '11px', color: '#A09880', marginTop: '4px' }}>
+                          Bitte mit Rechnungssumme abgleichen
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div style={{ padding: '12px 16px', display: 'flex', gap: '8px' }}>
                     <button onClick={() => { setScannedItems(null); setView('matrix') }} style={S.btn('#E0E0E0', '#555')}>Verwerfen</button>
                     <button onClick={saveScannedItems} disabled={saving} style={{ ...S.btn('#2E7D32'), flex: 1 }}>
