@@ -836,8 +836,9 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                     const isExpanded = expandedProduct === prod.id
                     const isEditingProd = editingProduct === prod.id
 
+                    const isPrivate = lp?.is_private ?? false
                     return (
-                      <div key={prod.id} style={S.card}>
+                      <div key={prod.id} style={{ ...S.card, ...(isPrivate ? { background: '#F9F0FF', borderLeft: '3px solid #7B1FA2' } : {}) }}>
                         {/* Produkt-Header */}
                         {isEditingProd ? (
                           <div style={{ padding: '12px 14px', background: '#F9F7F4' }}>
