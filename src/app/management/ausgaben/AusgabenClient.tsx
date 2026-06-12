@@ -262,18 +262,15 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
   const [editPriceForm, setEditPriceForm] = useState<{ price_tl: string; quantity: string; unit: string; date: string; notes: string; is_private: boolean }>({ price_tl: '', quantity: '', unit: '', date: '', notes: '', is_private: false })
 
-  // Preise gefiltert nach privat/geschäftlich
+  // Letzter Preis — immer anzeigen unabhängig vom Filter (Preise sollen immer sichtbar sein)
   const latestPrice = useCallback((productId: string) => {
-    return localPrices.find(p => p.product_id === productId &&
-      (showPrivat === 'alle' || (showPrivat === 'privat' ? p.is_private : !p.is_private))
-    ) ?? null
-  }, [localPrices, showPrivat])
+    return localPrices.find(p => p.product_id === productId) ?? null
+  }, [localPrices])
 
+  // Preisverlauf — alle Einträge, gefiltert nur für die History-Ansicht
   const priceHistory = useCallback((productId: string) => {
-    return localPrices.filter(p => p.product_id === productId &&
-      (showPrivat === 'alle' || (showPrivat === 'privat' ? p.is_private : !p.is_private))
-    ).slice(0, 20)
-  }, [localPrices, showPrivat])
+    return localPrices.filter(p => p.product_id === productId).slice(0, 20)
+  }, [localPrices])
 
   // Neues Produkt / Neuer Preis
   const [newProd, setNewProd] = useState({ name: '', category: 'molkerei', unit: 'kg', notes: '' })
