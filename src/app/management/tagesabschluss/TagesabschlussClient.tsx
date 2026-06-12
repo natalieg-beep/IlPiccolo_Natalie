@@ -34,6 +34,54 @@ const inpSm = (highlight: boolean) => ({
   ...inp(highlight), fontSize: '13px', padding: '8px 12px',
 })
 
+function BruttoKdvBlock({
+  label, icon, brutto, kdv, setBrutto, setKdv,
+}: {
+  label: string; icon: string
+  brutto: string; kdv: string
+  setBrutto: (v: string) => void; setKdv: (v: string) => void
+}) {
+  const net = netAuto(brutto, kdv)
+  const S = {
+    section: { background: '#FFFFFF', border: '1px solid #E5E0D8', borderRadius: '12px', padding: '14px', marginBottom: '12px' },
+    sectionTitle: { fontSize: '13px', fontWeight: '700', color: '#B8882A', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' },
+    row: { display: 'flex', gap: '8px', marginBottom: '6px' },
+    label: { fontSize: '11px', color: '#8A7A60', marginBottom: '4px', fontWeight: '600' },
+  }
+  function handleBrutto(val: string) {
+    setBrutto(val)
+    setKdv(kdvAuto(val))
+  }
+  return (
+    <div style={S.section}>
+      <div style={S.sectionTitle as React.CSSProperties}>{icon} {label}</div>
+      <div style={S.row as React.CSSProperties}>
+        <div style={{ flex: 2 }}>
+          <div style={S.label}>Brutto (inkl. KDV)</div>
+          <input type="number" min="0" step="0.01" placeholder="z.B. 6271"
+            value={brutto}
+            onChange={e => handleBrutto(e.target.value)}
+            style={inp(!!brutto)}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={S.label}>KDV (÷11, änderbar)</div>
+          <input type="number" min="0" step="0.01" placeholder="auto"
+            value={kdv}
+            onChange={e => setKdv(e.target.value)}
+            style={inpSm(!!kdv)}
+          />
+        </div>
+      </div>
+      {brutto && (
+        <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '4px' }}>
+          Net (ohne KDV): <strong style={{ color: '#1A1207' }}>{parseFloat(net).toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</strong>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TagesabschlussClient({
   date, initialEntries, schwarzBarFromOrders, appRevenue,
 }: {
@@ -159,43 +207,7 @@ export default function TagesabschlussClient({
     label: { fontSize: '11px', color: '#8A7A60', marginBottom: '4px', fontWeight: '600' },
   }
 
-  function BruttoKdvBlock({
-    label, icon, brutto, kdv, setBrutto, setKdv,
-  }: {
-    label: string; icon: string
-    brutto: string; kdv: string
-    setBrutto: (v: string) => void; setKdv: (v: string) => void
-  }) {
-    const net = netAuto(brutto, kdv)
-    return (
-      <div style={S.section}>
-        <div style={S.sectionTitle}>{icon} {label}</div>
-        <div style={S.row as React.CSSProperties}>
-          <div style={{ flex: 2 }}>
-            <div style={S.label}>Brutto (inkl. KDV)</div>
-            <input type="number" min="0" step="0.01" placeholder="z.B. 6271"
-              value={brutto}
-              onChange={e => handleBrutto(setBrutto, setKdv, e.target.value)}
-              style={inp(!!brutto)}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={S.label}>KDV (÷11, änderbar)</div>
-            <input type="number" min="0" step="0.01" placeholder="auto"
-              value={kdv}
-              onChange={e => setKdv(e.target.value)}
-              style={inpSm(!!kdv)}
-            />
-          </div>
-        </div>
-        {brutto && (
-          <div style={{ fontSize: '12px', color: '#8A7A60', marginTop: '4px' }}>
-            Net (ohne KDV): <strong style={{ color: '#1A1207' }}>{parseFloat(net).toLocaleString('de-DE', { minimumFractionDigits: 2 })} ₺</strong>
-          </div>
-        )}
-      </div>
-    )
-  }
+
 
   return (
     <div style={{ minHeight: '100dvh', background: '#F7F4F0' }}>
