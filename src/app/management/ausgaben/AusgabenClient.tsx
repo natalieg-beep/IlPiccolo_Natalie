@@ -34,11 +34,11 @@ export type Product = {
 export type Price = {
   id: string; product_id: string; price_tl: number; quantity: number; unit: string
   price_per_unit: number; date: string; source: string; receipt_ref: string | null
-  notes: string | null; is_private: boolean
+  notes: string | null; is_private: boolean; vat_rate: number | null
 }
 type ScannedItem = {
   name: string; price_tl: number; quantity: number; unit: string
-  category_hint: string; notes: string
+  vat_rate: number | null; category_hint: string; notes: string
   matched_product_id?: string; is_new_product?: boolean
   new_product_name?: string; new_product_category?: string
   is_private?: boolean
@@ -98,6 +98,8 @@ function AuswertungView({ prices, products }: { prices: Price[]; products: Produ
   const totalBusiness = business.reduce((s, p) => s + p.price_tl, 0)
   const totalPrivat   = privat.reduce((s, p) => s + p.price_tl, 0)
   const totalAll      = totalBusiness + totalPrivat
+  const totalKdv      = inPeriod.reduce((s, p) => s + (p.vat_rate ? p.price_tl * p.vat_rate / 100 : 0), 0)
+  const kdvBusiness   = business.reduce((s, p) => s + (p.vat_rate ? p.price_tl * p.vat_rate / 100 : 0), 0)
 
   // Nach Kategorie gruppieren
   const prodById = (id: string) => products.find(p => p.id === id)
@@ -144,14 +146,14 @@ function AuswertungView({ prices, products }: { prices: Price[]; products: Produ
       {/* Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
         <div style={{ ...S.card, padding: '10px', marginBottom: 0, background: '#FFF8EC' }}>
-          <div style={{ fontSize: '10px', color: '#8A7A60' }}>Gesamt</div>
+          <div style={{ fontSize: '10px', color: '#8A7A60' }}>Gesamt Netto</div>
           <div style={{ fontSize: '16px', fontWeight: 800, color: '#B8882A' }}>{fmtPrice(totalAll)}</div>
-          <div style={{ fontSize: '10px', color: '#8A7A60' }}>{inPeriod.length} Posten</div>
+          {totalKdv > 0 && <div style={{ fontSize: '10px', color: '#8A7A60' }}>KDV {fmtPrice(totalKdv)}</div>}
         </div>
         <div style={{ ...S.card, padding: '10px', marginBottom: 0 }}>
           <div style={{ fontSize: '10px', color: '#2E7D32' }}>🏢 Geschäftl.</div>
           <div style={{ fontSize: '14px', fontWeight: 700, color: '#2E7D32' }}>{fmtPrice(totalBusiness)}</div>
-          <div style={{ fontSize: '10px', color: '#8A7A60' }}>{business.length} Posten</div>
+          {kdvBusiness > 0 && <div style={{ fontSize: '10px', color: '#8A7A60' }}>KDV {fmtPrice(kdvBusiness)}</div>}
         </div>
         <div style={{ ...S.card, padding: '10px', marginBottom: 0 }}>
           <div style={{ fontSize: '10px', color: '#7B1FA2' }}>🏠 Privat</div>
@@ -361,6 +363,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
           source: 'scan',
           is_private: item.is_private ?? false,
           supplier_id: scanSupplierId || null,
+          vat_rate: item.vat_rate ?? null,
         }).select().single()
         if (newPrice) setLocalPrices(prev => [newPrice as Price, ...prev])
       }
@@ -670,14 +673,28 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                     const total = scannedItems.reduce((s, i) => s + i.price_tl, 0)
                     const totalBiz = scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0)
                     const totalPriv = scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0)
+                    const totalKdv = scannedItems.reduce((s, i) => s + (i.vat_rate ? i.price_tl * i.vat_rate / 100 : 0), 0)
+                    const hasKdv = scannedItems.some(i => i.vat_rate)
                     return (
                       <div style={{ margin: '0 12px 4px', background: '#F5F2EC', borderRadius: '10px', padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: totalPriv > 0 ? '8px' : 0 }}>
-                          <span style={{ fontSize: '13px', color: '#5A5040', fontWeight: 600 }}>Summe Rechnung</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '13px', color: '#5A5040', fontWeight: 600 }}>Netto gesamt</span>
                           <span style={{ fontSize: '18px', fontWeight: 800, color: '#1A1207' }}>{fmtPrice(total)}</span>
                         </div>
+                        {hasKdv && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
+                            <span style={{ color: '#8A7A60' }}>+ KDV</span>
+                            <span style={{ color: '#8A7A60', fontWeight: 600 }}>{fmtPrice(totalKdv)}</span>
+                          </div>
+                        )}
+                        {hasKdv && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #E5E0D8' }}>
+                            <span style={{ color: '#5A5040', fontWeight: 600 }}>Brutto</span>
+                            <span style={{ color: '#5A5040', fontWeight: 700 }}>{fmtPrice(total + totalKdv)}</span>
+                          </div>
+                        )}
                         {totalPriv > 0 && (
-                          <div style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
+                          <div style={{ display: 'flex', gap: '16px', fontSize: '12px', marginTop: '6px' }}>
                             <span style={{ color: '#2E7D32' }}>🏢 {fmtPrice(totalBiz)}</span>
                             <span style={{ color: '#7B1FA2' }}>🏠 {fmtPrice(totalPriv)}</span>
                           </div>

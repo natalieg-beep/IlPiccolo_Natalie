@@ -19,6 +19,7 @@ interface ExtractedItem {
   price_tl: number
   quantity: number
   unit: string
+  vat_rate: number | null
   category_hint: string
   notes: string
 }
@@ -49,6 +50,7 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
       "price_tl": <Gesamtpreis in TL als Zahl>,
       "quantity": <Anzahl der EINZELNEN Einheiten als Zahl>,
       "unit": <"kg" | "g" | "Stk" | "L" | "ml" | "Pkg">,
+      "vat_rate": <KDV-Satz als Zahl: 1 | 10 | 20 — oder null wenn nicht erkennbar>,
       "category_hint": <"molkerei" | "wurst" | "mehl" | "gemuese" | "getraenke" | "backen" | "verpackung" | "reinigung" | "sonstiges">,
       "notes": "<kurze Notiz wenn hilfreich, sonst leerer String>"
     }
@@ -71,6 +73,7 @@ Regeln für items:
 - IGNORIERE vollständig: "TOPLAM KDV", "Ödenecek", "KDV Dahil Tutar", Zahlungsinfos, Bankzeilen — das sind KEINE Produkte
 - BIM-Format: Zeilen wie "2 ad X 79,00" oder "N ad X PP,PP" sind Mengen-Info-Zeilen die zur NÄCHSTEN Produktzeile gehören — sie sind KEIN eigenes Produkt. Die Produktzeile darunter hat den *Gesamtpreis (N × Einzelpreis). Beispiel: "2 ad X 79,00" + "YUH.ŞEK. HARİBO *158,00" → quantity:2, price_tl:158, unit:"Stk"
 - Wenn Einheit unklar → "Stk"
+- KDV-Satz (vat_rate): In der Türkei gibt es %1 (Grundnahrung), %10 (Lebensmittel/Getränke), %20 (Non-Food, Reinigung, Verpackung). Auf HORECA-/e-Arşiv-Rechnungen steht der Satz oft als "%1.", "%10", "%20" am Produktnamen oder in einer KDV-Tabelle am Ende. Wenn erkennbar → Zahl eintragen, sonst null
 - Produktname: Schreibe einen lesbaren Namen (z.B. "Cola 330ml Dose", "Damla Wasser 330ml"). Leite Mengenangaben NICHT aus Produktcodes ab (z.B. "RB300" ist ein Code, nicht zwingend 300ml) — nutze nur explizit ausgeschriebene Größen im Produktnamen (z.B. "330ML" im Text "DAM MN.OWB 330ML")
 - ZUSAMMENFASSEN: Erscheint dasselbe Produkt mehrfach als einzelne Zeilen, fasse sie zu EINEM item zusammen:
     Wasser 10₺ / Wasser 10₺ / Wasser 10₺  →  name:"Wasser", quantity:3, price_tl:30
