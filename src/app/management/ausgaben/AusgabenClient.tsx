@@ -420,16 +420,18 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
   }
 
   async function saveEditProduct(prodId: string) {
+    if (!editProductForm.name.trim()) return alert('Name darf nicht leer sein')
     setSaving(true)
-    const { data } = await supabase.from('purchase_products').update({
+    const { data, error } = await supabase.from('purchase_products').update({
       name: editProductForm.name.trim(),
       category: editProductForm.category,
       unit: editProductForm.unit,
       notes: editProductForm.notes || null,
     }).eq('id', prodId).select().single()
+    setSaving(false)
+    if (error) { alert('Fehler beim Speichern: ' + error.message); return }
     if (data) setLocalProducts(prev => prev.map(p => p.id === prodId ? data as Product : p))
     setEditingProduct(null)
-    setSaving(false)
   }
 
   async function deleteProduct(prodId: string) {
@@ -900,7 +902,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                         {/* Produkt-Header */}
                         {isEditingProd ? (
                           <div style={{ padding: '12px 14px', background: '#F9F7F4' }}>
-                            <input value={editProductForm.name} onChange={e => setEditProductForm(f => ({ ...f, name: e.target.value }))}
+                            <input autoFocus value={editProductForm.name} onChange={e => setEditProductForm(f => ({ ...f, name: e.target.value }))}
                               style={{ ...S.input, marginBottom: '8px', fontSize: '14px', fontWeight: 600 }} />
                             <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                               <select value={editProductForm.category} onChange={e => setEditProductForm(f => ({ ...f, category: e.target.value }))}
