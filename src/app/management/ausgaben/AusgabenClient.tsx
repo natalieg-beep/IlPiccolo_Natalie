@@ -37,11 +37,16 @@ export type Price = {
   notes: string | null; is_private: boolean; vat_rate: number | null
 }
 type ScannedItem = {
-  name: string; price_tl: number; quantity: number; unit: string
+  name: string; price_tl: number; is_gross?: boolean; quantity: number; unit: string
   vat_rate: number | null; category_hint: string; notes: string
   matched_product_id?: string; is_new_product?: boolean
   new_product_name?: string; new_product_category?: string
   mode?: 'geschaeftlich' | 'privat' | 'investition'
+}
+// Rechnet Brutto→Netto wenn is_gross=true (BIM etc.). Claude rechnet NIE — nur Zahlen kopieren.
+function toNetto(item: ScannedItem): number {
+  if (item.is_gross && item.vat_rate) return item.price_tl / (1 + item.vat_rate / 100)
+  return item.price_tl
 }
 
 function fmtPrice(n: number) {
@@ -348,12 +353,13 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
         // 🔨 Investition → direkt in expenses speichern
         if (mode === 'investition') {
-          const brutto = item.vat_rate ? item.price_tl * (1 + item.vat_rate / 100) : item.price_tl
-          const kdv    = item.vat_rate ? item.price_tl * item.vat_rate / 100 : null
+          const netto  = toNetto(item)
+          const brutto = item.vat_rate ? netto * (1 + item.vat_rate / 100) : netto
+          const kdv    = item.vat_rate ? netto * item.vat_rate / 100 : null
           await supabase.from('expenses').insert({
             description:    item.name,
             amount_gross:   brutto,
-            amount_net:     item.price_tl,
+            amount_net:     netto,
             vat_rate:       item.vat_rate ?? null,
             vat_amount:     kdv,
             date:           scanDate,
@@ -379,7 +385,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
         if (!productId) continue
         const { data: newPrice } = await supabase.from('purchase_prices').insert({
           product_id: productId,
-          price_tl:   item.price_tl,
+          price_tl:   toNetto(item),   // immer Netto speichern
           quantity:   item.quantity,
           unit:       item.unit,
           date:       scanDate,
@@ -665,12 +671,17 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                         {/* Preis + Menge */}
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
-                            <span style={{ fontSize: '11px', color: '#8A7A60' }}>Ges.</span>
+                            <span style={{ fontSize: '11px', color: '#8A7A60' }}>{item.is_gross ? 'Brutto' : 'Netto'}</span>
                             <input type="number" inputMode="decimal" value={item.price_tl}
                               onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, price_tl: parseFloat(e.target.value) || 0 } : it))}
                               style={{ width: '60px', border: 'none', background: 'transparent', fontSize: '13px', fontWeight: 700, textAlign: 'right' }} />
                             <span style={{ fontSize: '11px', color: '#8A7A60' }}>₺</span>
                           </div>
+                          {item.is_gross && item.vat_rate && (
+                            <div style={{ fontSize: '11px', color: '#2E7D32', background: '#E8F5E9', borderRadius: '6px', padding: '4px 7px' }}>
+                              Netto: {fmtPrice(toNetto(item))}
+                            </div>
+                          )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#F5F2EC', borderRadius: '8px', padding: '4px 8px' }}>
                             <input type="number" inputMode="decimal" value={item.quantity}
                               onChange={e => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, quantity: parseFloat(e.target.value) || 1 } : it))}
@@ -711,11 +722,11 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                   })}
                   {/* ── Kontroll-Summe ── */}
                   {(() => {
-                    const total = scannedItems.reduce((s, i) => s + i.price_tl, 0)
-                    const totalBiz  = scannedItems.filter(i => (i.mode ?? 'geschaeftlich') === 'geschaeftlich').reduce((s, i) => s + i.price_tl, 0)
-                    const totalPriv = scannedItems.filter(i => i.mode === 'privat').reduce((s, i) => s + i.price_tl, 0)
-                    const totalInvest = scannedItems.filter(i => i.mode === 'investition').reduce((s, i) => s + i.price_tl, 0)
-                    const totalKdv = scannedItems.reduce((s, i) => s + (i.vat_rate ? i.price_tl * i.vat_rate / 100 : 0), 0)
+                    const total = scannedItems.reduce((s, i) => s + toNetto(i), 0)
+                    const totalBiz  = scannedItems.filter(i => (i.mode ?? 'geschaeftlich') === 'geschaeftlich').reduce((s, i) => s + toNetto(i), 0)
+                    const totalPriv = scannedItems.filter(i => i.mode === 'privat').reduce((s, i) => s + toNetto(i), 0)
+                    const totalInvest = scannedItems.filter(i => i.mode === 'investition').reduce((s, i) => s + toNetto(i), 0)
+                    const totalKdv = scannedItems.reduce((s, i) => { const n = toNetto(i); return s + (i.vat_rate ? n * i.vat_rate / 100 : 0) }, 0)
                     const hasKdv = scannedItems.some(i => i.vat_rate)
                     return (
                       <div style={{ margin: '0 12px 4px', background: '#F5F2EC', borderRadius: '10px', padding: '12px 14px' }}>

@@ -17,6 +17,7 @@ interface ScanRequest {
 interface ExtractedItem {
   name: string
   price_tl: number
+  is_gross: boolean       // true = Brutto-Preis (BIM etc.), false = Netto-Preis (HORECA/e-Arşiv)
   quantity: number
   unit: string
   vat_rate: number | null
@@ -47,7 +48,8 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
   "items": [
     {
       "name": "Produktname auf Deutsch wenn möglich, sonst Türkisch",
-      "price_tl": <Gesamtpreis in TL als Zahl>,
+      "price_tl": <Gesamtpreis in TL als Zahl — GENAU wie auf dem Beleg gedruckt, KEINE Umrechnung>,
+      "is_gross": <true wenn Kassenbon/Supermarkt (BIM, Migros, Şok etc.) — false wenn e-Arşiv/HORECA/Rechnung>,
       "quantity": <Anzahl der EINZELNEN Einheiten als Zahl>,
       "unit": <"kg" | "g" | "Stk" | "L" | "ml" | "Pkg">,
       "vat_rate": <KDV-Satz als Zahl: 1 | 10 | 20 — oder null wenn nicht erkennbar>,
@@ -58,33 +60,27 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
 }
 
 Regeln für items:
+- price_tl = GENAU der gedruckte Preis auf dem Beleg — KEINE Berechnungen, KEINE Umrechnungen!
+  * KASSENBON/SUPERMARKT (BIM, Migros, Şok): is_gross=true, price_tl = Zahl nach dem * wie gedruckt
+    Beispiel: "TEREYAĞ 1 KG %1. *469,00" → price_tl: 469, is_gross: true, vat_rate: 1
+    Beispiel: "YUH.ŞEK. HARİBO %1. *158,00" → price_tl: 158, is_gross: true, vat_rate: 1
+  * e-ARŞİV/HORECA/RECHNUNG: is_gross=false, price_tl = Netto-Preis wie gedruckt
+    Beispiel: Netto 367,58₺ auf e-Arşiv → price_tl: 367.58, is_gross: false, vat_rate: 10
+  * Rabatte (TUR PROM ISK., YERINDE TUKETIM etc.): vom gedruckten Preis abziehen → neuen Preis eintragen
+    Beispiel: 626,40₺ − 222,06₺ Rabatt → price_tl: 404.34, is_gross: true, vat_rate: 10
 - Preis ist IMMER der Gesamtpreis für alle Einzeleinheiten zusammen
 - Menge = ANZAHL DER EINZELSTÜCKE, nicht Kartons/Kisten/Gebinde:
-    Cola Kiste 24×0,5L 480₺  → quantity:24  unit:"Stk"  (= 20₺/Stk)
-    Mehl 5×1kg Sack 250₺     → quantity:5   unit:"kg"   (= 50₺/kg)
-    Mozza 3×125g 150₺         → quantity:375 unit:"g"    (= 0,40₺/g)
-    Olivenöl 2L Flasche 120₺  → quantity:2   unit:"L"    (= 60₺/L)
+    Cola Kiste 24×0,5L 480₺  → quantity:24  unit:"Stk"
+    Mehl 5×1kg Sack 250₺     → quantity:5   unit:"kg"
+    Olivenöl 2L Flasche 120₺  → quantity:2   unit:"L"
 - Wenn Gebindegröße nicht erkennbar → quantity=1, unit="Pkg", notes="Gebinde"
-- IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand — sowie alle Zeilen mit "BOS", "BOS KOMPLE", "DPZ", "AMBALAJ" (Leergut/leere Kisten/Flaschen-Depot) — nicht im Array
-- IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand auf Einzel-Flaschen als separate Zeilen
-- price_tl ist IMMER der NETTO-Preis (ohne KDV). Zwei Formate:
-  * KASSENBON/SUPERMARKT (BIM, Migros, Şok etc.): Preise auf dem Bon sind BRUTTO (KDV enthalten).
-    KDV-Satz steht am Produktnamen z.B. "%1.", "%10", "%20".
-    → price_tl = brutto_preis / (1 + vat_rate/100)
-    Beispiel: Haribo *158,00 mit %1 → price_tl = 158,00/1,01 = 156,44  vat_rate: 1
-    Beispiel: Colgate *90,00 mit %20 → price_tl = 90,00/1,20 = 75,00  vat_rate: 20
-  * e-ARŞİV/HORECA/RECHNUNG: Preise sind NETTO (KDV separat ausgewiesen).
-    → price_tl direkt übernehmen, vat_rate aus KDV-Spalte oder -Tabelle
-  * Rabatte (TUR PROM ISK., YERINDE TUKETIM etc.): vom Brutto-Preis abziehen VOR der Netto-Berechnung
-    Beispiel: 626,40₺ − 222,06₺ = 404,34₺ brutto → 404,34/1,10 = 367,58₺ netto  vat_rate: 10
+- IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand — sowie alle Zeilen mit "BOS", "BOS KOMPLE", "DPZ", "AMBALAJ"
 - IGNORIERE vollständig: "TOPLAM KDV", "Ödenecek", "KDV Dahil Tutar", Zahlungsinfos, Bankzeilen — das sind KEINE Produkte
-- BIM-Format: Zeilen wie "2 ad X 79,00" oder "N ad X PP,PP" sind Mengen-Info-Zeilen die zur NÄCHSTEN Produktzeile gehören — sie sind KEIN eigenes Produkt. Die Produktzeile darunter hat den *Gesamtpreis (N × Einzelpreis). Beispiel: "2 ad X 79,00" + "YUH.ŞEK. HARİBO *158,00" → quantity:2, price_tl:158, unit:"Stk"
+- BIM-Format: Zeilen wie "2 ad X 79,00" oder "N ad X PP,PP" sind Mengen-Info-Zeilen für das NÄCHSTE Produkt. Nicht als eigenes Produkt. Die Produktzeile danach hat den *Gesamtpreis. Beispiel: "2 ad X 79,00" dann "YUH.ŞEK. HARİBO *158,00" → quantity:2, price_tl:158
 - Wenn Einheit unklar → "Stk"
-- KDV-Satz (vat_rate): In der Türkei gibt es %1 (Grundnahrung), %10 (Lebensmittel/Getränke), %20 (Non-Food, Reinigung, Verpackung). Auf HORECA-/e-Arşiv-Rechnungen steht der Satz oft als "%1.", "%10", "%20" am Produktnamen oder in einer KDV-Tabelle am Ende. Wenn erkennbar → Zahl eintragen, sonst null
-- Produktname: Schreibe einen lesbaren Namen (z.B. "Cola 330ml Dose", "Damla Wasser 330ml"). Leite Mengenangaben NICHT aus Produktcodes ab (z.B. "RB300" ist ein Code, nicht zwingend 300ml) — nutze nur explizit ausgeschriebene Größen im Produktnamen (z.B. "330ML" im Text "DAM MN.OWB 330ML")
-- ZUSAMMENFASSEN: Erscheint dasselbe Produkt mehrfach als einzelne Zeilen, fasse sie zu EINEM item zusammen:
-    Wasser 10₺ / Wasser 10₺ / Wasser 10₺  →  name:"Wasser", quantity:3, price_tl:30
-    (quantity aufsummieren, price_tl aufsummieren, NICHT mehrere Einträge)
+- vat_rate: %1 (Grundnahrung), %10 (Lebensmittel), %20 (Non-Food). Auf BIM-Kassenzetteln steht "%1." oder "%20" direkt am Produktnamen
+- Produktname: lesbaren Namen schreiben. Mengenangaben nur aus explizit ausgeschriebenem Text
+- ZUSAMMENFASSEN: Gleiches Produkt mehrmals → ein item (quantity + price_tl aufsummieren)
 - Sortiere nach Kategorie`
 
 const EXPENSE_PROMPT = `Du bist ein Assistent, der türkische Rechnungen und Belege liest.
