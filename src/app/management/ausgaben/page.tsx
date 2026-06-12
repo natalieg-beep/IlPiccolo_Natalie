@@ -1,6 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import AusgabenPage from './AusgabenPageClient'
 
+export const dynamic = 'force-dynamic'
+
 export default async function Page() {
   const supabase = createAdminClient()
 
