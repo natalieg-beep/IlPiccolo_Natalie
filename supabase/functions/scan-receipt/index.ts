@@ -231,11 +231,59 @@ Deno.serve(async (req) => {
     if (data) supplier_match = data
   }
 
+  // Bestehenden Eintrag in expenses suchen (für "Beleg zuordnen" statt Neu anlegen)
+  // Match-Strategie: gleicher Betrag (±5%) + gleiches Datum ODER gleicher Betrag + gleicher Monat + gleicher Händler
+  let expense_match: { id: string; description: string | null; amount_gross: number; date: string | null; has_receipt: boolean } | null = null
+  if (expense.total_tl && expense.total_tl > 0) {
+    const tolerance = expense.total_tl * 0.05
+    const lo = expense.total_tl - tolerance
+    const hi = expense.total_tl + tolerance
+
+    // Versuch 1: gleicher Betrag + gleiches Datum
+    if (expense.date) {
+      const { data } = await db
+        .from('expenses')
+        .select('id, description, amount_gross, date, has_receipt')
+        .gte('amount_gross', lo).lte('amount_gross', hi)
+        .eq('date', expense.date)
+        .maybeSingle()
+      if (data) expense_match = data
+    }
+
+    // Versuch 2: gleicher Betrag + gleicher Monat + gleicher Händler
+    if (!expense_match && expense.date && supplier_match) {
+      const monthStart = expense.date.slice(0, 7) + '-01'
+      const monthEnd  = expense.date.slice(0, 7) + '-31'
+      const { data } = await db
+        .from('expenses')
+        .select('id, description, amount_gross, date, has_receipt')
+        .gte('amount_gross', lo).lte('amount_gross', hi)
+        .gte('date', monthStart).lte('date', monthEnd)
+        .eq('supplier_id', supplier_match.id)
+        .maybeSingle()
+      if (data) expense_match = data
+    }
+
+    // Versuch 3: gleicher Betrag + gleicher Monat (ohne Händler, wenn kein Match)
+    if (!expense_match && expense.date) {
+      const monthStart = expense.date.slice(0, 7) + '-01'
+      const monthEnd  = expense.date.slice(0, 7) + '-31'
+      const { data } = await db
+        .from('expenses')
+        .select('id, description, amount_gross, date, has_receipt')
+        .gte('amount_gross', lo).lte('amount_gross', hi)
+        .gte('date', monthStart).lte('date', monthEnd)
+        .maybeSingle()
+      if (data) expense_match = data
+    }
+  }
+
   return new Response(
     JSON.stringify({
       expense,
       duplicate: duplicate ? { found: true, receipt_id: duplicate.id, date: duplicate.date, total_tl: duplicate.total_tl } : { found: false },
       supplier_match,
+      expense_match,
     }),
     { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
   )

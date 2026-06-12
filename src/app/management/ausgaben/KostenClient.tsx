@@ -99,6 +99,9 @@ export default function KostenClient({
   const [scanResult, setScanResult] = useState<Record<string, unknown> | null>(null)
   const [scanError, setScanError]   = useState<string | null>(null)
   const [dupWarning, setDupWarning] = useState<string | null>(null)
+  type ExpenseMatch = { id: string; description: string | null; amount_gross: number; date: string | null; has_receipt: boolean }
+  const [expenseMatch, setExpenseMatch] = useState<ExpenseMatch | null>(null)
+  const [matchAssigned, setMatchAssigned] = useState(false)
 
   // ── Berechnungen ─────────────────────────────────────────────────────────────
 
@@ -185,7 +188,7 @@ export default function KostenClient({
   // ── Scan ─────────────────────────────────────────────────────────────────────
 
   async function handleScanFile(file: File) {
-    setScanning(true); setScanError(null); setScanResult(null); setDupWarning(null)
+    setScanning(true); setScanError(null); setScanResult(null); setDupWarning(null); setExpenseMatch(null); setMatchAssigned(false)
     try {
       const buf = await file.arrayBuffer()
       const b64 = bufferToBase64(buf)
@@ -199,6 +202,10 @@ export default function KostenClient({
       setScanResult(json)
       if (json.duplicate?.found) {
         setDupWarning(`⚠️ Dieser Beleg wurde möglicherweise schon erfasst (${fmtDate(json.duplicate.date)}, ${fmtTL(json.duplicate.total_tl)})`)
+      }
+      // Bestehenden Eintrag gefunden?
+      if (json.expense_match) {
+        setExpenseMatch(json.expense_match as ExpenseMatch)
       }
       // Formular vorausfüllen
       const exp = json.expense
@@ -220,6 +227,18 @@ export default function KostenClient({
     } finally {
       setScanning(false)
     }
+  }
+
+  // Beleg einem bestehenden Eintrag zuordnen
+  async function assignReceiptToMatch() {
+    if (!expenseMatch) return
+    setSaving(true)
+    const { error } = await supabase.from('expenses').update({ has_receipt: true }).eq('id', expenseMatch.id)
+    if (error) { alert('Fehler: ' + error.message); setSaving(false); return }
+    setExpenses(prev => prev.map(e => e.id === expenseMatch.id ? { ...e, has_receipt: true } : e))
+    setMatchAssigned(true)
+    setSaving(false)
+    setTimeout(() => { setView('uebersicht'); setScanResult(null); setExpenseMatch(null); setMatchAssigned(false) }, 1500)
   }
 
   // ── Netto-Berechnung ─────────────────────────────────────────────────────────
@@ -492,6 +511,40 @@ export default function KostenClient({
         <div style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '12px', marginBottom: '14px', fontSize: '13px', color: '#2E7D32' }}>
           ✓ Beleg erkannt: {String((scanResult.expense as Record<string,unknown>)?.receipt_type ?? '')}
           {String((scanResult.expense as Record<string,unknown>)?.ettn ?? '') && <span style={{ marginLeft: '8px', fontFamily: 'monospace', fontSize: '11px' }}>ETTN: {String((scanResult.expense as Record<string,unknown>).ettn).slice(0, 8)}…</span>}
+        </div>
+      )}
+
+      {/* ── Passender bestehender Eintrag gefunden ── */}
+      {expenseMatch && !matchAssigned && (
+        <div style={{ background: '#FFF8E1', border: '2px solid #FFB300', borderRadius: '12px', padding: '14px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#E65100', marginBottom: '6px' }}>
+            🔍 Passenden Eintrag gefunden
+          </div>
+          <div style={{ fontSize: '13px', color: '#1A1207', marginBottom: '4px' }}>
+            <strong>{expenseMatch.description ?? '—'}</strong>
+          </div>
+          <div style={{ fontSize: '12px', color: '#8A7A60', marginBottom: '10px' }}>
+            {fmtTL(expenseMatch.amount_gross)} · {fmtDate(expenseMatch.date)}
+            {expenseMatch.has_receipt
+              ? <span style={{ color: '#2E7D32', marginLeft: '8px' }}>✓ Beleg schon vorhanden</span>
+              : <span style={{ color: '#E65100', marginLeft: '8px' }}>⚠ kein Beleg hinterlegt</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={assignReceiptToMatch} disabled={saving || expenseMatch.has_receipt}
+              style={{ flex: 2, padding: '10px', background: expenseMatch.has_receipt ? '#E0E0E0' : '#2E7D32', color: '#FFF', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: expenseMatch.has_receipt ? 'default' : 'pointer' }}>
+              {expenseMatch.has_receipt ? '✓ Beleg bereits zugeordnet' : saving ? '…' : '✓ Beleg diesem Eintrag zuordnen'}
+            </button>
+            <button onClick={() => setExpenseMatch(null)}
+              style={{ flex: 1, padding: '10px', background: '#F5F2EC', color: '#555', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' }}>
+              Neu erfassen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {matchAssigned && (
+        <div style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: '10px', padding: '14px', marginBottom: '14px', textAlign: 'center', fontSize: '14px', fontWeight: 700, color: '#2E7D32' }}>
+          ✓ Beleg erfolgreich zugeordnet!
         </div>
       )}
 
