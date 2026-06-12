@@ -67,9 +67,16 @@ Regeln für items:
 - Wenn Gebindegröße nicht erkennbar → quantity=1, unit="Pkg", notes="Gebinde"
 - IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand — sowie alle Zeilen mit "BOS", "BOS KOMPLE", "DPZ", "AMBALAJ" (Leergut/leere Kisten/Flaschen-Depot) — nicht im Array
 - IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand auf Einzel-Flaschen als separate Zeilen
-- price_tl ist der TATSÄCHLICH BEZAHLTE Betrag nach allen Rabatten:
-    Listenpreis (Adet Fiyatı × Miktar) MINUS alle Abzugszeilen die direkt darunter stehen ("TUR PROM ISK.", "YERINDE TUKETIM", "ISK." etc.)
-    Beispiel: 626,40₺ − 222,06₺ YERINDE TUKETIM = 404,34₺ → price_tl: 404.34
+- price_tl ist IMMER der NETTO-Preis (ohne KDV). Zwei Formate:
+  * KASSENBON/SUPERMARKT (BIM, Migros, Şok etc.): Preise auf dem Bon sind BRUTTO (KDV enthalten).
+    KDV-Satz steht am Produktnamen z.B. "%1.", "%10", "%20".
+    → price_tl = brutto_preis / (1 + vat_rate/100)
+    Beispiel: Haribo *158,00 mit %1 → price_tl = 158,00/1,01 = 156,44  vat_rate: 1
+    Beispiel: Colgate *90,00 mit %20 → price_tl = 90,00/1,20 = 75,00  vat_rate: 20
+  * e-ARŞİV/HORECA/RECHNUNG: Preise sind NETTO (KDV separat ausgewiesen).
+    → price_tl direkt übernehmen, vat_rate aus KDV-Spalte oder -Tabelle
+  * Rabatte (TUR PROM ISK., YERINDE TUKETIM etc.): vom Brutto-Preis abziehen VOR der Netto-Berechnung
+    Beispiel: 626,40₺ − 222,06₺ = 404,34₺ brutto → 404,34/1,10 = 367,58₺ netto  vat_rate: 10
 - IGNORIERE vollständig: "TOPLAM KDV", "Ödenecek", "KDV Dahil Tutar", Zahlungsinfos, Bankzeilen — das sind KEINE Produkte
 - BIM-Format: Zeilen wie "2 ad X 79,00" oder "N ad X PP,PP" sind Mengen-Info-Zeilen die zur NÄCHSTEN Produktzeile gehören — sie sind KEIN eigenes Produkt. Die Produktzeile darunter hat den *Gesamtpreis (N × Einzelpreis). Beispiel: "2 ad X 79,00" + "YUH.ŞEK. HARİBO *158,00" → quantity:2, price_tl:158, unit:"Stk"
 - Wenn Einheit unklar → "Stk"

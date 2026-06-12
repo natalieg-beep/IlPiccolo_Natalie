@@ -87,6 +87,16 @@ export default async function ManagementPage() {
       highlight: false,
       disabled: false,
     },
+    {
+      label: 'Händler & Lieferanten',
+      icon: '🏪',
+      desc: 'Händler verwalten · Kategorien · Notizen',
+      href: '/management/lieferanten',
+      stat: null,
+      statLabel: null,
+      highlight: false,
+      disabled: false,
+    },
   ]
 
   return (
