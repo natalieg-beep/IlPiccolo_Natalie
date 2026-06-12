@@ -41,7 +41,7 @@ type ScannedItem = {
   vat_rate: number | null; category_hint: string; notes: string
   matched_product_id?: string; is_new_product?: boolean
   new_product_name?: string; new_product_category?: string
-  is_private?: boolean
+  mode?: 'geschaeftlich' | 'privat' | 'investition'
 }
 
 function fmtPrice(n: number) {
@@ -335,7 +335,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
         p.name.toLowerCase().includes(item.name.toLowerCase()) ||
         item.name.toLowerCase().includes(p.name.toLowerCase())
       )
-      return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint, is_private: false }
+      return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint, mode: 'geschaeftlich' as const }
     })
   }
 
@@ -344,6 +344,29 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
     setSaving(true)
     try {
       for (const item of scannedItems) {
+        const mode = item.mode ?? 'geschaeftlich'
+
+        // 🔨 Investition → direkt in expenses speichern
+        if (mode === 'investition') {
+          const brutto = item.vat_rate ? item.price_tl * (1 + item.vat_rate / 100) : item.price_tl
+          const kdv    = item.vat_rate ? item.price_tl * item.vat_rate / 100 : null
+          await supabase.from('expenses').insert({
+            description:    item.name,
+            amount_gross:   brutto,
+            amount_net:     item.price_tl,
+            vat_rate:       item.vat_rate ?? null,
+            vat_amount:     kdv,
+            date:           scanDate,
+            supplier_id:    scanSupplierId || null,
+            payment_type:   'offiziell',
+            has_receipt:    true,
+            source:         'scan',
+            category_id:    null, // "Nicht kategorisiert" → Nutzer kann nachträglich zuweisen
+          })
+          continue
+        }
+
+        // 🏢 Geschäftlich / 🏠 Privat → purchase_prices
         let productId = item.matched_product_id
         if (item.is_new_product && item.new_product_name) {
           const { data: newP } = await supabase.from('purchase_products').insert({
@@ -356,14 +379,14 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
         if (!productId) continue
         const { data: newPrice } = await supabase.from('purchase_prices').insert({
           product_id: productId,
-          price_tl: item.price_tl,
-          quantity: item.quantity,
-          unit: item.unit,
-          date: scanDate,
-          source: 'scan',
-          is_private: item.is_private ?? false,
+          price_tl:   item.price_tl,
+          quantity:   item.quantity,
+          unit:       item.unit,
+          date:       scanDate,
+          source:     'scan',
+          is_private: mode === 'privat',
           supplier_id: scanSupplierId || null,
-          vat_rate: item.vat_rate ?? null,
+          vat_rate:   item.vat_rate ?? null,
         }).select().single()
         if (newPrice) setLocalPrices(prev => [newPrice as Price, ...prev])
       }
@@ -471,7 +494,17 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
   // ── Hilfsvariablen ─────────────────────────────────────────────────────────
 
-  const filtered = selectedCat ? localProducts.filter(p => p.category === selectedCat) : localProducts
+  const filtered = localProducts.filter(p => {
+    if (selectedCat && p.category !== selectedCat) return false
+    if (showPrivat === 'alle') return true
+    const prices = localPrices.filter(pr => pr.product_id === p.id)
+    if (prices.length === 0) return showPrivat === 'geschaeftlich' // kein Preis → geschäftlich
+    const hasPrivat = prices.some(pr => pr.is_private)
+    const hasBiz    = prices.some(pr => !pr.is_private)
+    if (showPrivat === 'privat')       return hasPrivat
+    if (showPrivat === 'geschaeftlich') return hasBiz
+    return true
+  })
   const grouped = CATEGORIES.map(cat => ({
     ...cat, items: filtered.filter(p => p.category === cat.key),
   })).filter(g => g.items.length > 0 || !selectedCat)
@@ -595,30 +628,26 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                     <div style={{ fontSize: '12px', color: '#8A7A60', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                       <span>Mengen + Einheiten prüfen · 🏢/🏠 pro Zeile markieren</span>
                     </div>
-                    {scannedItems.some(i => i.is_private) && (
-                      <div style={{ fontSize: '12px', marginTop: '4px', display: 'flex', gap: '12px' }}>
-                        <span style={{ color: '#2E7D32', fontWeight: 600 }}>🏢 {fmtPrice(scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
-                        <span style={{ color: '#7B1FA2', fontWeight: 600 }}>🏠 {fmtPrice(scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0))}</span>
-                      </div>
-                    )}
                     {/* Schnell alle umschalten */}
                     <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-                      <button
-                        onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, is_private: false })))}
-                        style={{ flex: 1, padding: '7px', border: '1.5px solid #2E7D32', borderRadius: '8px', background: '#E8F5E9', color: '#2E7D32', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                        🏢 Alle geschäftlich
+                      <button onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, mode: 'geschaeftlich' as const })))}
+                        style={{ flex: 1, padding: '7px', border: '1.5px solid #2E7D32', borderRadius: '8px', background: '#E8F5E9', color: '#2E7D32', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                        🏢 Alle geschäftl.
                       </button>
-                      <button
-                        onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, is_private: true })))}
-                        style={{ flex: 1, padding: '7px', border: '1.5px solid #7B1FA2', borderRadius: '8px', background: '#EDE7F6', color: '#6A1B9A', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                      <button onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, mode: 'privat' as const })))}
+                        style={{ flex: 1, padding: '7px', border: '1.5px solid #7B1FA2', borderRadius: '8px', background: '#EDE7F6', color: '#6A1B9A', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
                         🏠 Alle privat
+                      </button>
+                      <button onClick={() => setScannedItems(prev => prev!.map(it => ({ ...it, mode: 'investition' as const })))}
+                        style={{ flex: 1, padding: '7px', border: '1.5px solid #B8882A', borderRadius: '8px', background: '#FFF8E1', color: '#B8882A', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                        🔨 Alle Invest.
                       </button>
                     </div>
                   </div>
                   {scannedItems.map((item, i) => {
                     const perUnit = item.quantity > 0 ? item.price_tl / item.quantity : 0
                     return (
-                      <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #F0ECE8', background: item.is_private ? '#F9F0FF' : undefined }}>
+                      <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #F0ECE8', background: item.mode === 'privat' ? '#F9F0FF' : item.mode === 'investition' ? '#FFFDE7' : undefined }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600, fontSize: '14px' }}>{item.name}</div>
@@ -652,27 +681,38 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                           </div>
                           {item.quantity > 0 && <span style={{ fontSize: '12px', color: '#2E7D32', fontWeight: 600 }}>{fmtPrice(perUnit)}/{item.unit}</span>}
                         </div>
-                        {/* Privat/Geschäftlich-Toggle — eigene Zeile, gut sichtbar */}
-                        <button
-                          onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, is_private: !it.is_private } : it))}
-                          style={{
-                            width: '100%', padding: '9px', border: 'none', borderRadius: '8px',
-                            fontSize: '13px', fontWeight: 700, cursor: 'pointer',
-                            background: item.is_private ? '#EDE7F6' : '#E8F5E9',
-                            color: item.is_private ? '#6A1B9A' : '#2E7D32',
-                            borderLeft: `4px solid ${item.is_private ? '#7B1FA2' : '#2E7D32'}`,
-                            textAlign: 'left',
-                          }}>
-                          {item.is_private ? '🏠 Privat — für zuhause' : '🏢 Geschäftlich — fürs Restaurant'}
-                        </button>
+                        {/* 3-Wege-Toggle: Geschäftlich / Privat / Investition */}
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {(['geschaeftlich', 'privat', 'investition'] as const).map(m => {
+                            const active = (item.mode ?? 'geschaeftlich') === m
+                            const cfg = {
+                              geschaeftlich: { label: '🏢 Geschäftl.', bg: '#E8F5E9', color: '#2E7D32', border: '#2E7D32' },
+                              privat:        { label: '🏠 Privat',     bg: '#EDE7F6', color: '#6A1B9A', border: '#7B1FA2' },
+                              investition:   { label: '🔨 Investition', bg: '#FFF8E1', color: '#B8882A', border: '#B8882A' },
+                            }[m]
+                            return (
+                              <button key={m}
+                                onClick={() => setScannedItems(prev => prev!.map((it, j) => j === i ? { ...it, mode: m } : it))}
+                                style={{
+                                  flex: 1, padding: '8px 4px', border: `2px solid ${active ? cfg.border : '#E5E0D8'}`,
+                                  borderRadius: '8px', fontSize: '11px', fontWeight: active ? 700 : 500,
+                                  background: active ? cfg.bg : '#FFF', color: active ? cfg.color : '#A09880',
+                                  cursor: 'pointer',
+                                }}>
+                                {cfg.label}
+                              </button>
+                            )
+                          })}
+                        </div>
                       </div>
                     )
                   })}
                   {/* ── Kontroll-Summe ── */}
                   {(() => {
                     const total = scannedItems.reduce((s, i) => s + i.price_tl, 0)
-                    const totalBiz = scannedItems.filter(i => !i.is_private).reduce((s, i) => s + i.price_tl, 0)
-                    const totalPriv = scannedItems.filter(i => i.is_private).reduce((s, i) => s + i.price_tl, 0)
+                    const totalBiz  = scannedItems.filter(i => (i.mode ?? 'geschaeftlich') === 'geschaeftlich').reduce((s, i) => s + i.price_tl, 0)
+                    const totalPriv = scannedItems.filter(i => i.mode === 'privat').reduce((s, i) => s + i.price_tl, 0)
+                    const totalInvest = scannedItems.filter(i => i.mode === 'investition').reduce((s, i) => s + i.price_tl, 0)
                     const totalKdv = scannedItems.reduce((s, i) => s + (i.vat_rate ? i.price_tl * i.vat_rate / 100 : 0), 0)
                     const hasKdv = scannedItems.some(i => i.vat_rate)
                     return (
@@ -693,10 +733,11 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                             <span style={{ color: '#5A5040', fontWeight: 700 }}>{fmtPrice(total + totalKdv)}</span>
                           </div>
                         )}
-                        {totalPriv > 0 && (
-                          <div style={{ display: 'flex', gap: '16px', fontSize: '12px', marginTop: '6px' }}>
+                        {(totalPriv > 0 || totalInvest > 0) && (
+                          <div style={{ display: 'flex', gap: '12px', fontSize: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
                             <span style={{ color: '#2E7D32' }}>🏢 {fmtPrice(totalBiz)}</span>
-                            <span style={{ color: '#7B1FA2' }}>🏠 {fmtPrice(totalPriv)}</span>
+                            {totalPriv > 0 && <span style={{ color: '#7B1FA2' }}>🏠 {fmtPrice(totalPriv)}</span>}
+                            {totalInvest > 0 && <span style={{ color: '#B8882A' }}>🔨 {fmtPrice(totalInvest)}</span>}
                           </div>
                         )}
                         <div style={{ fontSize: '11px', color: '#A09880', marginTop: '4px' }}>
