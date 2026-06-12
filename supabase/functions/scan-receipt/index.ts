@@ -68,7 +68,8 @@ Regeln für items:
 - price_tl ist der TATSÄCHLICH BEZAHLTE Betrag nach allen Rabatten:
     Listenpreis (Adet Fiyatı × Miktar) MINUS alle Abzugszeilen die direkt darunter stehen ("TUR PROM ISK.", "YERINDE TUKETIM", "ISK." etc.)
     Beispiel: 626,40₺ − 222,06₺ YERINDE TUKETIM = 404,34₺ → price_tl: 404.34
-- IGNORIERE: Summen, MwSt/KDV, Zahlungsinfos
+- IGNORIERE vollständig: "TOPLAM KDV", "Ödenecek", "KDV Dahil Tutar", Zahlungsinfos, Bankzeilen — das sind KEINE Produkte
+- BIM-Format: Zeilen wie "2 ad X 79,00" oder "N ad X PP,PP" sind Mengen-Info-Zeilen die zur NÄCHSTEN Produktzeile gehören — sie sind KEIN eigenes Produkt. Die Produktzeile darunter hat den *Gesamtpreis (N × Einzelpreis). Beispiel: "2 ad X 79,00" + "YUH.ŞEK. HARİBO *158,00" → quantity:2, price_tl:158, unit:"Stk"
 - Wenn Einheit unklar → "Stk"
 - Produktname: Schreibe einen lesbaren Namen (z.B. "Cola 330ml Dose", "Damla Wasser 330ml"). Leite Mengenangaben NICHT aus Produktcodes ab (z.B. "RB300" ist ein Code, nicht zwingend 300ml) — nutze nur explizit ausgeschriebene Größen im Produktnamen (z.B. "330ML" im Text "DAM MN.OWB 330ML")
 - ZUSAMMENFASSEN: Erscheint dasselbe Produkt mehrfach als einzelne Zeilen, fasse sie zu EINEM item zusammen:
