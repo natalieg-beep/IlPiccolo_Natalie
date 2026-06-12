@@ -64,7 +64,9 @@ Regeln für items:
     Olivenöl 2L Flasche 120₺  → quantity:2   unit:"L"    (= 60₺/L)
 - Wenn Gebindegröße nicht erkennbar → quantity=1, unit="Pkg", notes="Gebinde"
 - IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand — sowie alle Zeilen mit "BOS", "BOS KOMPLE", "DPZ", "AMBALAJ" (Leergut/leere Kisten/Flaschen-Depot) — nicht im Array
-- IGNORIERE: Summen, MwSt/KDV, Rabatte, Zahlungsinfos
+- IGNORIERE vollständig: alle Rabatt-/Abzugszeilen wie "TUR PROM ISK.", "YERINDE TUKETIM", "ISK.", Promo-Abzüge — diese NIEMALS vom Produktpreis abziehen
+- price_tl ist IMMER: Adet Fiyatı × Miktar (Listenpreis × Menge), ohne jegliche Rabatte oder Abzüge
+- IGNORIERE: Summen, MwSt/KDV, Zahlungsinfos
 - Wenn Einheit unklar → "Stk"
 - Produktname: Schreibe einen lesbaren Namen (z.B. "Cola 330ml Dose", "Damla Wasser 330ml"). Leite Mengenangaben NICHT aus Produktcodes ab (z.B. "RB300" ist ein Code, nicht zwingend 300ml) — nutze nur explizit ausgeschriebene Größen im Produktnamen (z.B. "330ML" im Text "DAM MN.OWB 330ML")
 - ZUSAMMENFASSEN: Erscheint dasselbe Produkt mehrfach als einzelne Zeilen, fasse sie zu EINEM item zusammen:
