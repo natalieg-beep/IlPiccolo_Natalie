@@ -258,6 +258,11 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
   const [scannedItems, setScannedItems] = useState<ScannedItem[] | null>(null)
   const [scanSupplierId, setScanSupplierId] = useState<string>('')
   const [scanDate, setScanDate] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [localSuppliers, setLocalSuppliers] = useState<Supplier[]>(suppliers)
+  const [showNewSupplier, setShowNewSupplier] = useState(false)
+  const [newSupplierName, setNewSupplierName] = useState('')
+  const [newSupplierCat, setNewSupplierCat] = useState<'supermarkt' | 'lieferant' | 'sonstiges'>('lieferant')
+  const [savingSupplier, setSavingSupplier] = useState(false)
   const [saving, setSaving] = useState(false)
   const [localProducts, setLocalProducts] = useState<Product[]>(products)
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
@@ -527,6 +532,24 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
     input: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E0D8', fontSize: '14px', boxSizing: 'border-box' } as React.CSSProperties,
   }
 
+  // ── Neuer Händler anlegen ─────────────────────────────────────────────────
+  async function saveNewSupplier() {
+    if (!newSupplierName.trim()) return
+    setSavingSupplier(true)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('suppliers')
+      .insert({ name: newSupplierName.trim(), category: newSupplierCat })
+      .select('id, name, category')
+      .single()
+    setSavingSupplier(false)
+    if (error || !data) { alert('Fehler: ' + error?.message); return }
+    setLocalSuppliers(prev => [...prev, data])
+    setScanSupplierId(data.id)
+    setShowNewSupplier(false)
+    setNewSupplierName('')
+  }
+
   // ── Render: Main-Tabs ──────────────────────────────────────────────────────
 
   return (
@@ -602,21 +625,56 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                       <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
                         🏪 Händler {scanSupplierId ? <span style={{ color: '#2E7D32' }}>✓ automatisch erkannt</span> : '(optional)'}
                       </label>
-                      <select
-                        value={scanSupplierId}
-                        onChange={e => setScanSupplierId(e.target.value)}
-                        style={{ width: '100%', padding: '9px 10px', borderRadius: '8px', border: `1.5px solid ${scanSupplierId ? '#2E7D32' : '#E5E0D8'}`, fontSize: '14px', background: '#FFF', color: scanSupplierId ? '#1A1207' : '#A09880' }}>
-                        <option value="">— Händler wählen (optional) —</option>
-                        {(['supermarkt', 'lieferant', 'sonstiges'] as const).map(cat => {
-                          const grouped = suppliers.filter(s => s.category === cat).sort((a, b) => a.name.localeCompare(b.name))
-                          if (!grouped.length) return null
-                          return (
-                            <optgroup key={cat} label={SUPPLIER_CATS[cat] ?? cat}>
-                              {grouped.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </optgroup>
-                          )
-                        })}
-                      </select>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <select
+                          value={scanSupplierId}
+                          onChange={e => { setScanSupplierId(e.target.value); setShowNewSupplier(false) }}
+                          style={{ flex: 1, padding: '9px 10px', borderRadius: '8px', border: `1.5px solid ${scanSupplierId ? '#2E7D32' : '#E5E0D8'}`, fontSize: '14px', background: '#FFF', color: scanSupplierId ? '#1A1207' : '#A09880' }}>
+                          <option value="">— Händler wählen (optional) —</option>
+                          {(['supermarkt', 'lieferant', 'sonstiges'] as const).map(cat => {
+                            const grouped = localSuppliers.filter(s => s.category === cat).sort((a, b) => a.name.localeCompare(b.name))
+                            if (!grouped.length) return null
+                            return (
+                              <optgroup key={cat} label={SUPPLIER_CATS[cat] ?? cat}>
+                                {grouped.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                              </optgroup>
+                            )
+                          })}
+                        </select>
+                        <button
+                          onClick={() => setShowNewSupplier(v => !v)}
+                          style={{ padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #E5E0D8', background: showNewSupplier ? '#E8F5E9' : '#FFF', fontSize: '18px', cursor: 'pointer', flexShrink: 0 }}
+                          title="Neuen Händler anlegen">
+                          ➕
+                        </button>
+                      </div>
+                      {showNewSupplier && (
+                        <div style={{ marginTop: '8px', padding: '10px 12px', background: '#F0F7F0', borderRadius: '8px', border: '1.5px solid #A5D6A7' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: '#2E7D32', marginBottom: '8px' }}>Neuen Händler anlegen</div>
+                          <input
+                            autoFocus
+                            placeholder="Name (z.B. Metro, Migros…)"
+                            value={newSupplierName}
+                            onChange={e => setNewSupplierName(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && saveNewSupplier()}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1.5px solid #C8E6C9', fontSize: '14px', marginBottom: '6px', boxSizing: 'border-box' }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {(['supermarkt', 'lieferant', 'sonstiges'] as const).map(cat => (
+                              <button key={cat} onClick={() => setNewSupplierCat(cat)}
+                                style={{ flex: 1, padding: '6px 4px', borderRadius: '6px', border: `1.5px solid ${newSupplierCat === cat ? '#2E7D32' : '#C8E6C9'}`, background: newSupplierCat === cat ? '#2E7D32' : '#FFF', color: newSupplierCat === cat ? '#FFF' : '#555', fontSize: '11px', cursor: 'pointer' }}>
+                                {SUPPLIER_CATS[cat]}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            onClick={saveNewSupplier}
+                            disabled={savingSupplier || !newSupplierName.trim()}
+                            style={{ marginTop: '8px', width: '100%', padding: '8px', borderRadius: '6px', border: 'none', background: newSupplierName.trim() ? '#2E7D32' : '#CCC', color: '#FFF', fontSize: '13px', fontWeight: 700, cursor: newSupplierName.trim() ? 'pointer' : 'default' }}>
+                            {savingSupplier ? 'Speichern…' : '✓ Anlegen & auswählen'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Datum */}
