@@ -1,6 +1,6 @@
 # Management-Modul — Dokumentation
 
-**Stand: 2026-06-11**
+**Stand: 2026-06-12**
 
 ---
 
@@ -74,14 +74,6 @@
 
 KDV wird automatisch berechnet (Brutto ÷ 11 = KDV bei 10%), kann überschrieben werden.
 
-**Zusammenfassung:**
-- Menulux → Karte (Beko) / Bar (Menulux − Beko) aufgeteilt
-- Freunde-Bar (kommt automatisch aus App-Bestellungen)
-- Trinkgeld
-- Gesamt, KDV, Netto
-- Entnahmen abgezogen → Netto-Einnahmen
-- Differenz App ↔ Menulux als Kontrolle
-
 **Gespeichert in:** `daily_entries` (upsert — mehrfach speicherbar pro Tag)
 
 ---
@@ -92,32 +84,103 @@ KDV wird automatisch berechnet (Brutto ÷ 11 = KDV bei 10%), kann überschrieben
 
 **Zweck:** Produktkatalog mit Preishistorie. Basis für Rezept-Preiskalkulation.
 
-**Eingabe:**
-- 📷 Scan: Foto oder PDF-Text → Claude Vision → Bestätigungs-Screen (Menge/Einheit editierbar, Privat-Toggle) → speichern
-- + Preis: Manuell für bestehendes Produkt
-- + Produkt: Neues Produkt anlegen (Name, Kategorie, Einheit)
-- ✏️ auf Produkt: Name, Kategorie, Einheit ändern oder löschen
-- ✏️ auf Preis-Eintrag: Menge, Einheit, Gesamtpreis, Datum, Privat-Flag nachträglich korrigieren
+#### Scan-Logik (Edge Function `scan-receipt`)
 
-**Filter:** Geschäftlich 🏢 / Alle / Privat 🏠
+Die Edge Function ruft Claude Vision mit dem Bon-Foto auf. **Claude rechnet NIE** — er kopiert Zahlen genau wie gedruckt. Die App macht die Arithmetik.
 
-**Produktkarte:** Letzter Preis pro Einheit (`price_per_unit` = `price_tl ÷ quantity`), Preisverlauf aufklappbar.
+**Kassenbon-Format (BIM, Migros, Şok):**
+- Preise auf dem Bon sind BRUTTO (KDV enthalten)
+- KDV-Satz steht am Produktnamen: `%1.` `%10` `%20`
+- Claude gibt `is_gross: true` zurück + Preis wie gedruckt
+- App berechnet: `netto = brutto / (1 + vat_rate/100)`
 
-**Einheitenkonvertierung:** Wenn Einheit kg → automatisch ₺/100g und ₺/g berechnet und angezeigt
-(z.B. Mozza: 1kg = 400₺ → 40₺/100g → 0,40₺/g)
+**Rechnung-Format (e-Arşiv, HORECA, Lieferanten):**
+- Preise sind NETTO (KDV separat ausgewiesen)
+- Claude gibt `is_gross: false` zurück
+- Preis direkt übernehmen
 
-**Subtab 📊 Auswertung:** Wochen-/Monats-Navigation, Gesamt-/Geschäftlich-/Privat-Split,
+**BIM-Format-Besonderheit:**
+- Zeilen wie `"3 ad X 1,00"` oder `"N ad X PP,PP"` sind Mengeninfo-Zeilen, die zur **nächsten** Produktzeile gehören — kein eigenes Produkt
+- Zeile danach hat den Gesamtpreis (N × Einzelpreis)
+
+**Rabatte (TUR PROM ISK., YERINDE TUKETIM):**
+- Sind echte Jahresrabatte → vom Brutto-Preis abziehen vor dem Speichern
+- Beispiel: 626,40₺ − 222,06₺ Rabatt → gespeicherter Preis: 404,34₺ brutto
+
+**Ignorierte Zeilen:**
+- TOPLAM KDV, Ödenecek, KDV Dahil Tutar (Summenzeilen, keine Produkte)
+- BOS KOMPLE, DPZ, AMBALAJ (Leergut/Pfand)
+- Depozit, Güvence (Flaschenpfand auf Einzelflaschen)
+
+**Händler-Erkennung:**
+- Edge Function liest `supplier_name` aus Belegkopf
+- Gleicht gegen `suppliers`-Tabelle ab (ILIKE-Match)
+- Gibt `supplier_match` zurück → UI wählt Händler automatisch vor
+
+#### Produkt-Modus beim Scan (3-Wege-Toggle)
+
+Pro gescanntem Artikel wählbar:
+
+| Modus | Farbe | Gespeichert in |
+|---|---|---|
+| 🏢 Geschäftlich | grün | `purchase_prices` (is_private=false) |
+| 🏠 Privat | lila | `purchase_prices` (is_private=true) |
+| 🔨 Investition | gold | `expenses` |
+
+- "Alle geschäftlich / Alle privat / Alle Investition"-Buttons setzen alle Items gleichzeitig
+- Privat-Produkte erscheinen in der Produktübersicht mit lila Farbe
+
+#### Preisspeicherung
+
+```
+purchase_prices.price_tl = NETTO-Preis (immer)
+purchase_prices.vat_rate = KDV-Satz (1 | 10 | 20 | null)
+purchase_prices.quantity = Anzahl Einzeleinheiten
+purchase_prices.price_per_unit = GENERATED (price_tl / quantity)
+```
+
+**KDV-Anzeige:** In der Scan-Bestätigung werden Netto + KDV + Brutto angezeigt.
+In der Auswertung: KDV-Anteil separat ausgewiesen (wichtig für Vorsteuer-Tracking).
+
+#### Produktübersicht
+
+**Filter:** 🏢 Geschäftlich / Alle / 🏠 Privat
+- Privat-Filter blendet nur in der Übersicht aus — Preise bleiben gespeichert
+- Letzter Preis (`latestPrice`) wird immer angezeigt, unabhängig vom Filter
+
+**Preisanzeige:** `price_per_unit` = `price_tl ÷ quantity`
+- kg → zusätzlich ₺/100g und ₺/g berechnet und angezeigt
+
+**Produkt bearbeiten (✏️):** Name, Kategorie, Einheit ändern. Fehler werden angezeigt.
+
+**Preis bearbeiten (✏️):** Menge, Einheit, Gesamtpreis, Datum, Privat-Flag nachträglich korrigieren.
+
+#### Subtab 📊 Auswertung
+
+Wochen-/Monats-Navigation, Gesamt-/Geschäftlich-/Privat-Split,
 Balkendiagramm nach Kategorie, tägliche Einkaufsliste.
 
 **Gespeichert in:** `purchase_products` + `purchase_prices`
+
+---
 
 ### Tab 2: 📊 Investitionen & Fixkosten
 
 **Zweck:** Alle Betriebsausgaben tracken — Miete, Umbau, Geräte, laufende Kosten.
 
 **Eingabe:**
-- + Button: Neue Ausgabe (Kategorie, Beschreibung, Händler, Betrag, KDV, Zahlungsart Offiziell/Bar/Schwarz, Amortisation über X Monate)
-- 📷 Scan: Rechnung scannen → Claude liest Belegkopf (ETTN, Händler, Betrag, KDV, Datum) → Formular vorausgefüllt → Duplikat-Check gegen `receipts`
+- `+` Button: Neue Ausgabe (Kategorie, Beschreibung, Händler, Betrag, KDV, Zahlungsart Offiziell/Bar/Schwarz, Amortisation über X Monate)
+- 📷 Scan: Rechnung scannen → Claude liest Belegkopf (ETTN, Händler, Betrag, KDV, Datum) → Formular vorausgefüllt
+
+**Beleg-Matching beim Scan:**
+Wenn ein Eintrag in `expenses` schon existiert (z.B. aus manuellem Import):
+- Edge Function sucht passenden Eintrag: gleicher Betrag (±5%) + Datum / Monat + Händler
+- UI zeigt Banner "🔍 Passenden Eintrag gefunden" → "Beleg zuordnen" oder "Neu erfassen"
+- "Beleg zuordnen" → setzt `has_receipt=true` auf dem bestehenden Eintrag
+
+**Duplikat-Check:**
+- e-Arşiv/e-Fatura: ETTN (UUID) wird gegen `receipts`-Tabelle geprüft
+- Kassenbon: Rechnungsnummer gegen `receipts`
 
 **Filter:** Alle / Investition 🔨 / Laufend 🔄 / Einmalig ⚡
 
@@ -126,6 +189,23 @@ Bei monatlich: Investitionen werden auf ihre Laufzeit verteilt
 (z.B. 50.000 ₺ Umbau ÷ 24 Monate = 2.083 ₺/Monat).
 
 **Gespeichert in:** `expenses` + `expense_categories` + `suppliers`
+
+---
+
+## 🏪 Händler & Lieferanten `/management/lieferanten`
+
+**Zweck:** Alle Händler und Lieferanten verwalten.
+
+**Kategorien:** Supermarkt / Lieferant / Handwerker / Behörde / Sonstiges
+
+**Features:**
+- Suche (Name + Notizen)
+- Kategorie-Filter
+- Inline-Bearbeitung (Name, Kategorie, Notizen)
+- Aktiv/Inaktiv-Toggle (inaktive erscheinen ausgegraut)
+- Neuen Händler anlegen
+
+**Gespeichert in:** `suppliers`
 
 ---
 
@@ -140,11 +220,35 @@ Preiskalkulation wird aktiv sobald `purchase_products` mit Preisen befüllt ist.
 
 ---
 
+## Technische Hinweise
+
+### Server-Side Rendering (Next.js)
+
+- `export const dynamic = 'force-dynamic'` auf allen Management-Seiten → verhindert stale Cache
+- Server-Seiten nutzen `createAdminClient()` (Service Role Key) für DB-Reads → umgeht RLS
+- Client-Komponenten nutzen `createClient()` (Anon Key) für Writes → RLS greift (patch27 erlaubt anon all auf internen Tabellen)
+
+### RLS-Patches
+
+| Patch | Inhalt |
+|---|---|
+| patch27 | `anon_all` Policy auf `expenses`, `expense_categories`, `purchase_products`, `purchase_prices`, `suppliers`, `receipts` |
+| patch28 | `vat_rate` Spalte zu `purchase_prices` hinzugefügt |
+
+### Edge Function `scan-receipt`
+
+- Deployed separat via `supabase functions deploy scan-receipt` (nicht Teil von Vercel-Deploy!)
+- Nutzt `ANTHROPIC_API_KEY` + `SUPABASE_SERVICE_ROLE_KEY` als Environment-Variablen in Supabase
+- Zwei Modi: `mode=products` (Standard) und `mode=expense` (Belegkopf)
+
+---
+
 ## Offene Punkte
 
 | Feature | Status |
 |---|---|
 | Rezepte → Preiskalkulation aktivieren | 🔜 nächster Schritt |
 | Fixkosten (Gas, Strom, Wasser) nacherfassen | 🔜 Beträge noch offen |
-| Burrata-Zähler | 🔜 später, Karte wird noch hochgeladen |
-| Differenz App ↔ Gerätekasse direkt in Einnahmen-Seite | ⚠️ nur im Tagesabschluss sichtbar |
+| Steuerberater-Export (CSV) mit KDV-Aufschlüsselung | 🔜 geplant |
+| Personalkosten erfassen | 🔜 noch kein Tracking |
+| Burrata-Zähler | 🔜 später |
