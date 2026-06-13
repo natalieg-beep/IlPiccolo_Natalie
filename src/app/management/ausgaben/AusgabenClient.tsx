@@ -293,9 +293,15 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
   // ── Scan ──────────────────────────────────────────────────────────────────
 
-  function applyScanResult(json: { items?: ScannedItem[]; supplier_match?: { id: string; name: string } | null; date?: string | null }) {
+  function applyScanResult(json: { items?: ScannedItem[]; supplier_name?: string | null; supplier_match?: { id: string; name: string } | null; date?: string | null }) {
     setScannedItems(matchItems(json.items ?? []))
-    if (json.supplier_match?.id) setScanSupplierId(json.supplier_match.id)
+    if (json.supplier_match?.id) {
+      setScanSupplierId(json.supplier_match.id)
+    } else if (json.supplier_name) {
+      // Händler erkannt aber nicht in DB → "+ Neu" vorausfüllen
+      setNewSupplierName(json.supplier_name)
+      setShowNewSupplier(true)
+    }
     if (json.date) setScanDate(json.date)
   }
 
