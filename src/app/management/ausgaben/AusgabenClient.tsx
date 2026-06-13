@@ -15,6 +15,30 @@ function bufferToBase64(buf: ArrayBuffer): string {
   return btoa(b64)
 }
 
+// Komprimiert ein Bild auf max. 1400px Breite/Höhe, JPEG 80% — verhindert zu große Uploads
+function compressImage(file: File): Promise<{ base64: string; type: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const MAX = 1400
+      let { width, height } = img
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX }
+        else { width = Math.round(width * MAX / height); height = MAX }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width; canvas.height = height
+      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+      resolve({ base64: dataUrl.split(',')[1], type: 'image/jpeg' })
+    }
+    img.onerror = reject
+    img.src = url
+  })
+}
+
 export const CATEGORIES: { key: string; label: string; icon: string }[] = [
   { key: 'molkerei',   label: 'Molkerei',          icon: '🧀' },
   { key: 'wurst',      label: 'Wurst & Geflügel',  icon: '🥩' },
@@ -267,6 +291,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
   const [localProducts, setLocalProducts] = useState<Product[]>(products)
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
   const fileRef = useRef<HTMLInputElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
 
   // Edit-States
   const [editingProduct, setEditingProduct] = useState<string | null>(null)
@@ -305,16 +330,20 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
     if (json.date) setScanDate(json.date)
   }
 
-  async function handleFile(file: File) {
+  async function handleFiles(files: FileList | File[]) {
+    const arr = Array.from(files)
+    if (arr.length === 0) return
     setScanning(true); setScanError(null); setScannedItems(null)
     setScanSupplierId(''); setScanDate(new Date().toISOString().slice(0, 10))
     try {
-      const buf = await file.arrayBuffer()
-      const b64 = bufferToBase64(buf)
+      const images = await Promise.all(arr.map(f => compressImage(f)))
+      const body = images.length === 1
+        ? { image_base64: images[0].base64, image_type: images[0].type }
+        : { images }
       const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: b64, image_type: file.type }),
+        body: JSON.stringify(body),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Fehler beim Scannen')
@@ -592,14 +621,24 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
           {view === 'scan' && (
             <div style={{ padding: '16px' }}>
               <div style={{ ...S.card, padding: '16px' }}>
-                <p style={{ margin: '0 0 12px', fontWeight: 600 }}>Beleg scannen</p>
-                <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment"
+                <p style={{ margin: '0 0 4px', fontWeight: 600 }}>Beleg scannen</p>
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#888' }}>Langer Bon? Mehrere Fotos auf einmal auswählen.</p>
+                {/* Kamera: 1 Foto direkt aufnehmen */}
+                <input ref={fileRef} type="file" accept="image/*" capture="environment"
                   style={{ display: 'none' }}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+                  onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
+                />
+                {/* Galerie: mehrere Fotos aus der Bibliothek wählen */}
+                <input ref={galleryRef} type="file" accept="image/*" multiple
+                  style={{ display: 'none' }}
+                  onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
                 />
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button onClick={() => fileRef.current?.click()} style={S.btn('#1565C0')} disabled={scanning}>
-                    {scanning ? '⏳ Scanning…' : '📸 Foto / Datei wählen'}
+                    {scanning ? '⏳ Scanning…' : '📸 Kamera'}
+                  </button>
+                  <button onClick={() => galleryRef.current?.click()} style={S.btn('#0D47A1')} disabled={scanning}>
+                    {scanning ? '⏳ Scanning…' : '🖼️ Galerie (mehrere)'}
                   </button>
                   <button onClick={() => setShowPaste(s => !s)} style={S.btn('#555')}>📋 Text einfügen</button>
                 </div>

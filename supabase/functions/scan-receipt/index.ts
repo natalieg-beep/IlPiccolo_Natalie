@@ -10,6 +10,7 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6'
 interface ScanRequest {
   image_base64?: string
   image_type?: string    // 'image/jpeg' | 'image/png' | 'application/pdf'
+  images?: { base64: string; type: string }[]   // mehrere Bilder (langer Bon)
   text?: string
   mode?: 'products' | 'expense'   // default: 'products'
 }
@@ -74,7 +75,12 @@ Regeln für items:
     Mehl 5×1kg Sack 250₺     → quantity:5   unit:"kg"
     Olivenöl 2L Flasche 120₺  → quantity:2   unit:"L"
 - Wenn Gebindegröße nicht erkennbar → quantity=1, unit="Pkg", notes="Gebinde"
-- IGNORIERE vollständig: Depozit, Güvence, Kaution, Pfand — sowie alle Zeilen mit "BOS", "BOS KOMPLE", "DPZ", "AMBALAJ"
+- DEPOZIT / PFAND (Flaschenkaution): Zeilen mit "DPZ", "BOS KOMPLE", "AMBALAJ", "Güvence", "Kaution" NUR für folgende Produkte als eigenes Item aufnehmen (category_hint: "verpackung", is_gross: false, vat_rate: 20):
+    * DPZ.CC oder DPZ Coca-Cola → name: "Depozit Coca-Cola"
+    * DPZ.CC ZERO oder DPZ Zero → name: "Depozit Coca-Cola Zero"
+    * DPZ.FAN oder DPZ Fanta → name: "Depozit Fanta"
+    * DPZ.SPR oder DPZ Sprite → name: "Depozit Sprite"
+  Alle anderen DPZ/Güvence/Pfand-Zeilen (z.B. für Wasser, unbekannte Produkte) IGNORIERE vollständig.
 - IGNORIERE vollständig: "TOPLAM KDV", "Ödenecek", "KDV Dahil Tutar", Zahlungsinfos, Bankzeilen — das sind KEINE Produkte
 - BIM-Format: Zeilen wie "2 ad X 79,00" oder "N ad X PP,PP" sind Mengen-Info-Zeilen für das NÄCHSTE Produkt. Nicht als eigenes Produkt. Die Produktzeile danach hat den *Gesamtpreis. Beispiel: "2 ad X 79,00" dann "YUH.ŞEK. HARİBO *158,00" → quantity:2, price_tl:158
 - Wenn Einheit unklar → "Stk"
@@ -124,11 +130,23 @@ Deno.serve(async (req) => {
   type ContentBlock = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   const content: ContentBlock[] = []
 
-  if (body.image_base64) {
-    content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: (body.image_type || 'image/jpeg') as string, data: body.image_base64 },
-    })
+  // Mehrere Bilder (langer Bon in Teilfotos)
+  const allImages: { base64: string; type: string }[] = body.images
+    ?? (body.image_base64 ? [{ base64: body.image_base64, type: body.image_type || 'image/jpeg' }] : [])
+
+  if (allImages.length > 0) {
+    if (allImages.length > 1) {
+      content.push({
+        type: 'text',
+        text: `Dieser Kassenbeleg wurde in ${allImages.length} Teilfotos aufgenommen (oben → unten). Behandle alle Bilder als EINEN zusammenhängenden Beleg. Dedupliziere Produkte die in mehreren Bildern sichtbar sind — jedes Produkt nur einmal erfassen.`,
+      })
+    }
+    for (const img of allImages) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.type as string, data: img.base64 },
+      })
+    }
     content.push({
       type: 'text',
       text: mode === 'expense'
@@ -143,7 +161,7 @@ Deno.serve(async (req) => {
         : `Lies diesen Belegtext und extrahiere alle Produkte mit Preisen:\n\n${body.text}`,
     })
   } else {
-    return new Response(JSON.stringify({ error: 'Kein Inhalt (image_base64 oder text erforderlich)' }), { status: 400 })
+    return new Response(JSON.stringify({ error: 'Kein Inhalt (image_base64, images oder text erforderlich)' }), { status: 400 })
   }
 
   // Claude aufrufen
@@ -156,7 +174,7 @@ Deno.serve(async (req) => {
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: mode === 'expense' ? EXPENSE_PROMPT : PRODUCTS_PROMPT,
       messages: [{ role: 'user', content }],
     }),
