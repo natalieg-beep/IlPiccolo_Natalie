@@ -1,6 +1,52 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-11 | Letzter Commit: siehe git log**
+**Stand: 2026-06-13 | Letzter Commit: siehe git log**
+
+## Letzte Änderungen (2026-06-13)
+
+### Menü-Updates
+- **Üç Gen** hinzugefügt: Dessert, 190₺, Desc: "Fındıklı üçgen pasta"
+- **Tonno EKSTRA** hinzugefügt: Extra, 200₺, Desc: "Ton balığı (50g)" → in EXTRA_GROUPS 🥩 Et-Gruppe
+- **Ayran** Preis: 50₺ → 60₺
+- Datei: `src/lib/menu.ts`
+
+### Händler-Management (AusgabenClient)
+- **Neuen Händler anlegen** direkt beim Scan: ➕-Button neben Händler-Dropdown
+  - Inline-Formular: Name + Kategorie (🏪 Supermarkt / 🚚 Lieferant / Sonstiges)
+  - Speichert in Supabase `suppliers`, wählt neuen Händler sofort aus
+  - State: `localSuppliers`, `showNewSupplier`, `newSupplierName`, `newSupplierCat`, `savingSupplier`
+  - Funktion: `saveNewSupplier()`
+- **Scan erkennt unbekannten Händler**: `applyScanResult` prüft jetzt auch `supplier_name`
+  - Wenn Händler erkannt aber nicht in DB → ➕-Formular öffnet sich automatisch mit Name vorausgefüllt
+- **Händler-Liste bereinigt** (manuell in Supabase auszuführen):
+  ```sql
+  DELETE FROM suppliers;
+  INSERT INTO suppliers (name, category) VALUES
+    ('Muhtar',         'lieferant'),
+    ('Bostan',         'lieferant'),
+    ('BIM',            'supermarkt'),
+    ('Altım Şen Gıda', 'lieferant'),
+    ('Metro',          'supermarkt');
+  ```
+  ⚠️ Falls noch nicht ausgeführt → im Supabase SQL Editor einfügen!
+
+## Letzte Änderungen (2026-06-12)
+
+### BIM Preis-Bug (kritisch)
+- Problem: Claude hat Brutto→Netto selbst ausgerechnet → Zahlendreher (469₺ → 64,36₺)
+- Fix: Claude kopiert Zahlen nur noch exakt wie gedruckt + gibt `is_gross: true/false` zurück
+- App rechnet: `toNetto()` in AusgabenClient.tsx → `brutto / (1 + vat_rate/100)`
+- Edge Function `scan-receipt` neu deployed
+
+### Produkt-Name editieren
+- Fix: Error-Handling + autoFocus in `saveEditProduct()`
+
+### Menulux-Eingabe verliert Fokus
+- Ursache: `BruttoKdvBlock` war innerhalb der Render-Funktion definiert
+- Fix: auf Modul-Ebene ausgelagert in `TagesabschlussClient.tsx`
+
+### DB-Stand (12.06.2026)
+- `purchase_products` und `purchase_prices` sind leer (absichtlich gelöscht, Neustart)
 
 ## Letzte Änderungen (11.06.2026) — v2
 
