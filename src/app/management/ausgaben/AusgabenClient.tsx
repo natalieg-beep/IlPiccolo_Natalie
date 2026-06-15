@@ -304,6 +304,7 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
   const [scanReceiptMeta, setScanReceiptMeta] = useState<ScanReceiptMeta | null>(null)
   const [scanFilenames, setScanFilenames] = useState<string[]>([])
+  const [unmatchedSupplierName, setUnmatchedSupplierName] = useState<string | null>(null) // Claude-Name ohne DB-Match
   const fileRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
   const pdfRef = useRef<HTMLInputElement>(null)
@@ -337,7 +338,9 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
     setScannedItems(matchItems(json.items ?? []))
     if (json.supplier_match?.id) {
       setScanSupplierId(json.supplier_match.id)
+      setUnmatchedSupplierName(null)
     } else if (json.supplier_name) {
+      setUnmatchedSupplierName(json.supplier_name)
       setNewSupplierName(json.supplier_name)
       setShowNewSupplier(true)
     }
@@ -764,6 +767,24 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
                       <label style={{ fontSize: '11px', color: '#8A7A60', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
                         🏪 Händler {scanSupplierId ? <span style={{ color: '#2E7D32' }}>✓ automatisch erkannt</span> : '(optional)'}
                       </label>
+                      {/* Alias-Button: wenn Claude einen Namen hatte der nicht gematcht wurde, und User wählt manuell */}
+                      {unmatchedSupplierName && scanSupplierId && !showNewSupplier && (
+                        <div style={{ marginBottom: '6px', padding: '6px 10px', background: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFD54F', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ flex: 1, color: '#7A6020' }}>„{unmatchedSupplierName}" als Alias speichern?</span>
+                          <button onClick={async () => {
+                            const sup = localSuppliers.find(s => s.id === scanSupplierId)
+                            if (!sup) return
+                            const existing = (sup as Supplier & { aliases?: string }).aliases
+                            const newAliases = existing ? `${existing}, ${unmatchedSupplierName}` : unmatchedSupplierName
+                            await supabase.from('suppliers').update({ aliases: newAliases }).eq('id', scanSupplierId)
+                            setLocalSuppliers(prev => prev.map(s => s.id === scanSupplierId ? { ...s, aliases: newAliases } as typeof s : s))
+                            setUnmatchedSupplierName(null)
+                          }} style={{ padding: '4px 10px', background: '#2E7D32', color: '#FFF', border: 'none', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 700 }}>
+                            ✓ Ja
+                          </button>
+                          <button onClick={() => setUnmatchedSupplierName(null)} style={{ padding: '4px 8px', background: 'none', border: 'none', color: '#A09880', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: '6px' }}>
                         <select
                           value={scanSupplierId}

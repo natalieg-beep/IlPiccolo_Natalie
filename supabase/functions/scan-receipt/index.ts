@@ -247,12 +247,17 @@ Deno.serve(async (req) => {
     if (parsed.supplier_name) {
       const sn = parsed.supplier_name.toLowerCase()
 
-      // Versuch 1: DB-Name ist Teilstring von Claude-Name (z.B. DB "Bostan", Claude "Bostan Sebze Meyve")
-      const { data: allSuppliers } = await db.from('suppliers').select('id, name, category')
+      const { data: allSuppliers } = await db.from('suppliers').select('id, name, category, aliases')
       if (allSuppliers) {
-        // Längsten Match bevorzugen (z.B. "Altım Şen Gıda" schlägt "Alt")
-        const matched = (allSuppliers as { id: string; name: string; category: string }[])
-          .filter(s => sn.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(sn))
+        type Sup = { id: string; name: string; category: string; aliases: string | null }
+        const matched = (allSuppliers as Sup[])
+          .filter(s => {
+            const name = s.name.toLowerCase()
+            const aliasArr = s.aliases ? s.aliases.split(',').map(a => a.trim().toLowerCase()) : []
+            // Name bidirektional ODER Alias enthält/wird enthalten
+            return sn.includes(name) || name.includes(sn)
+              || aliasArr.some(a => sn.includes(a) || a.includes(sn))
+          })
           .sort((a, b) => b.name.length - a.name.length)[0]
         if (matched) supplier_match = matched
       }
@@ -302,14 +307,20 @@ Deno.serve(async (req) => {
     if (data) duplicate = data
   }
 
-  // Händler-Match in Supabase (bidirektional, für Vorauswahl in UI)
+  // Händler-Match in Supabase (bidirektional + Aliases, für Vorauswahl in UI)
   let supplier_match: { id: string; name: string; category: string } | null = null
   if (expense.supplier_name) {
     const sn = expense.supplier_name.toLowerCase()
-    const { data: allS } = await db.from('suppliers').select('id, name, category')
+    const { data: allS } = await db.from('suppliers').select('id, name, category, aliases')
     if (allS) {
-      const matched = (allS as { id: string; name: string; category: string }[])
-        .filter(s => sn.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(sn))
+      type Sup = { id: string; name: string; category: string; aliases: string | null }
+      const matched = (allS as Sup[])
+        .filter(s => {
+          const name = s.name.toLowerCase()
+          const aliasArr = s.aliases ? s.aliases.split(',').map(a => a.trim().toLowerCase()) : []
+          return sn.includes(name) || name.includes(sn)
+            || aliasArr.some(a => sn.includes(a) || a.includes(sn))
+        })
         .sort((a, b) => b.name.length - a.name.length)[0]
       if (matched) supplier_match = matched
     }

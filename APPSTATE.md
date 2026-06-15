@@ -399,6 +399,7 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
 | patch21b_fix_date | expenses.date nullable | ✅ |
 | patch22_rezepte | menu_items + recipe_ingredients + recipe_product_assignments + privat-Kategorie | ✅ |
 | patch23_menu_rezepte | 15 Pizzen + Getränke/Extras + alle Rezepturen aus Excel | ✅ |
+| patch24_revenue_snapshots | revenue_snapshots Tabelle + erste Einträge (15.06.2026) | ✅ |
 
 ### Ausgaben-Datenbankstand (09.06.2026)
 - `suppliers`: 98 Händler
@@ -409,6 +410,34 @@ Jeder Timestamp hat ein ✏️ zum nachträglichen Korrigieren.
   - Stopaj-Feld vorhanden ✅
 - `receipts`: Tabelle bereit, noch leer (Belege werden per Scan befüllt)
 - `scan-receipt` Edge Function: Dual-Modus (products / expense) mit ETTN-Duplikat-Check ✅
+
+### revenue_snapshots (neu 15.06.2026)
+
+Tabelle für periodische Umsatz-Snapshots aus externen Geräten und der App.
+
+#### Felder
+- `source`: menulux | beko1 | beko2 | bar_berechnet | app | app_privat | app_onthehouse
+- `period`: z.B. `2026-ytd` | `2026-06`
+- `amount`: Betrag in ₺
+- `snapshot_date`: Datum des Ablesens
+- `note`: Freitext (z.B. KDV-Wert, Hinweise)
+
+#### Logik
+- **Offizieller Umsatz** = Menulux
+- **Bar** = Menulux − Beko1 − Beko2
+- **Achtung**: Beko↔Menulux-Integration defekt → alle Menulux-Zahlungen als Nakit gebucht
+- **App** enthält auch Freunde/schwarz_bar + on_the_house → liegt höher als Menulux
+
+#### Erster Snapshot (Stand 15.06.2026)
+| source | amount | note |
+|---|---|---|
+| menulux | 97.268 ₺ | YTD offiziell |
+| beko1 | 71.764 ₺ | KDV: 6.524,06 ₺ |
+| beko2 | 16.747 ₺ | KDV: 1.497,64 ₺ |
+| bar_berechnet | 8.757 ₺ | Menulux − Beko1 − Beko2 |
+| app | 117.782 ₺ | 01.–14.06., bezahlt (ohne schwarz-gratis) |
+| app_privat | 18.870 ₺ | schwarz + schwarz_bar (davon gratis: 970 ₺) |
+| app_onthehouse | 16.890 ₺ | auf Haus Items, 35 von 114 Bestellungen |
 
 ### Kostenkonzept
 → Siehe `KOSTENKONZEPT.md` für vollständige Dokumentation
