@@ -66,6 +66,7 @@ type ScannedItem = {
   matched_product_id?: string; is_new_product?: boolean
   new_product_name?: string; new_product_category?: string
   mode?: 'geschaeftlich' | 'privat' | 'investition'
+  item_date?: string | null   // Bulk-Modus: Datum der jeweiligen Rechnung
 }
 // Rechnet Brutto→Netto wenn is_gross=true (BIM etc.). Claude rechnet NIE — nur Zahlen kopieren.
 function toNetto(item: ScannedItem): number {
@@ -342,9 +343,10 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
           ? f.arrayBuffer().then(buf => ({ base64: bufferToBase64(buf), type: 'application/pdf' }))
           : compressImage(f)
       ))
+      const allPdfs = images.every(i => i.type === 'application/pdf')
       const body = images.length === 1
         ? { image_base64: images[0].base64, image_type: images[0].type }
-        : { images }
+        : { images, bulk: allPdfs && images.length > 1 }
       const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
@@ -379,13 +381,13 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
     }
   }
 
-  function matchItems(items: ScannedItem[]): ScannedItem[] {
+  function matchItems(items: (ScannedItem & { date?: string | null })[]): ScannedItem[] {
     return items.map(item => {
       const match = localProducts.find(p =>
         p.name.toLowerCase().includes(item.name.toLowerCase()) ||
         item.name.toLowerCase().includes(p.name.toLowerCase())
       )
-      return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint, mode: 'geschaeftlich' as const }
+      return { ...item, matched_product_id: match?.id, is_new_product: !match, new_product_name: item.name, new_product_category: item.category_hint, mode: 'geschaeftlich' as const, item_date: item.date ?? null }
     })
   }
 
@@ -407,7 +409,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
             amount_net:     netto,
             vat_rate:       item.vat_rate ?? null,
             vat_amount:     kdv,
-            date:           scanDate,
+            date:           item.item_date ?? scanDate,
             supplier_id:    scanSupplierId || null,
             payment_type:   'offiziell',
             has_receipt:    true,
@@ -433,7 +435,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
           price_tl:   toNetto(item),   // immer Netto speichern
           quantity:   item.quantity,
           unit:       item.unit,
-          date:       scanDate,
+          date:       item.item_date ?? scanDate,
           source:     'scan',
           is_private: mode === 'privat',
           supplier_id: scanSupplierId || null,
@@ -638,8 +640,8 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                   style={{ display: 'none' }}
                   onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
                 />
-                {/* PDF */}
-                <input ref={pdfRef} type="file" accept="application/pdf"
+                {/* PDF: mehrere erlaubt für Bulk */}
+                <input ref={pdfRef} type="file" accept="application/pdf" multiple
                   style={{ display: 'none' }}
                   onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
                 />
@@ -779,6 +781,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                               {item.category_hint}
                               {item.is_new_product && <span style={{ color: '#1565C0', marginLeft: '6px' }}>✦ neu</span>}
                               {!item.is_new_product && <span style={{ color: '#2E7D32', marginLeft: '6px' }}>✓ bekannt</span>}
+                              {item.item_date && <span style={{ color: '#8A7A60', marginLeft: '6px' }}>📅 {item.item_date}</span>}
                             </div>
                           </div>
                           <button onClick={() => setScannedItems(prev => prev!.filter((_, j) => j !== i))}

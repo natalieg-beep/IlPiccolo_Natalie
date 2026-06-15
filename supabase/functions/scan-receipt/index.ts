@@ -10,9 +10,10 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6'
 interface ScanRequest {
   image_base64?: string
   image_type?: string    // 'image/jpeg' | 'image/png' | 'application/pdf'
-  images?: { base64: string; type: string }[]   // mehrere Bilder (langer Bon)
+  images?: { base64: string; type: string }[]   // mehrere Bilder (langer Bon) oder mehrere PDFs (Bulk)
   text?: string
   mode?: 'products' | 'expense'   // default: 'products'
+  bulk?: boolean   // true = mehrere separate Rechnungen vom gleichen Händler
 }
 
 interface ExtractedItem {
@@ -24,6 +25,7 @@ interface ExtractedItem {
   vat_rate: number | null
   category_hint: string
   notes: string
+  date?: string | null    // nur bei Bulk-Modus: Datum der jeweiligen Rechnung
 }
 
 interface ExtractedExpense {
@@ -55,7 +57,8 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
       "unit": <"kg" | "g" | "Stk" | "L" | "ml" | "Pkg">,
       "vat_rate": <KDV-Satz als Zahl: 1 | 10 | 20 — oder null wenn nicht erkennbar>,
       "category_hint": <"molkerei" | "wurst" | "mehl" | "gemuese" | "getraenke" | "backen" | "verpackung" | "reinigung" | "sonstiges">,
-      "notes": "<kurze Notiz wenn hilfreich, sonst leerer String>"
+      "notes": "<kurze Notiz wenn hilfreich, sonst leerer String>",
+      "date": "<nur bei Bulk-Modus: Datum dieser Rechnung als YYYY-MM-DD — sonst null>"
     }
   ]
 }
@@ -137,12 +140,21 @@ Deno.serve(async (req) => {
   const allImages: { base64: string; type: string }[] = body.images
     ?? (body.image_base64 ? [{ base64: body.image_base64, type: body.image_type || 'image/jpeg' }] : [])
 
+  const isBulk = body.bulk === true || (allImages.length > 1 && allImages.every(i => i.type === 'application/pdf'))
+
   if (allImages.length > 0) {
     if (allImages.length > 1) {
-      content.push({
-        type: 'text',
-        text: `Dieser Kassenbeleg wurde in ${allImages.length} Teilfotos aufgenommen (oben → unten). Behandle alle Bilder als EINEN zusammenhängenden Beleg. Dedupliziere Produkte die in mehreren Bildern sichtbar sind — jedes Produkt nur einmal erfassen.`,
-      })
+      if (isBulk) {
+        content.push({
+          type: 'text',
+          text: `Das sind ${allImages.length} separate Rechnungen vom gleichen Händler. Extrahiere alle Produkte aus ALLEN Rechnungen in eine kombinierte Liste. Wichtig: Trage bei jedem Item das Datum der jeweiligen Rechnung im Feld "date" ein (Format YYYY-MM-DD). Gleiche Produkte aus verschiedenen Rechnungen als separate Einträge belassen (unterschiedliche Daten).`,
+        })
+      } else {
+        content.push({
+          type: 'text',
+          text: `Dieser Kassenbeleg wurde in ${allImages.length} Teilfotos aufgenommen (oben → unten). Behandle alle Bilder als EINEN zusammenhängenden Beleg. Dedupliziere Produkte die in mehreren Bildern sichtbar sind — jedes Produkt nur einmal erfassen.`,
+        })
+      }
     }
     for (const img of allImages) {
       if (img.type === 'application/pdf') {
