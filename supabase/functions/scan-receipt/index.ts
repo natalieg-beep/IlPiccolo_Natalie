@@ -127,10 +127,13 @@ Deno.serve(async (req) => {
   const mode = body.mode ?? 'products'
 
   // Claude-Nachricht aufbauen
-  type ContentBlock = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  type ContentBlock =
+    | { type: 'text'; text: string }
+    | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+    | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
   const content: ContentBlock[] = []
 
-  // Mehrere Bilder (langer Bon in Teilfotos)
+  // Mehrere Bilder/PDFs (langer Bon in Teilfotos oder PDF-Rechnung)
   const allImages: { base64: string; type: string }[] = body.images
     ?? (body.image_base64 ? [{ base64: body.image_base64, type: body.image_type || 'image/jpeg' }] : [])
 
@@ -142,10 +145,18 @@ Deno.serve(async (req) => {
       })
     }
     for (const img of allImages) {
-      content.push({
-        type: 'image',
-        source: { type: 'base64', media_type: img.type as string, data: img.base64 },
-      })
+      if (img.type === 'application/pdf') {
+        // PDFs als document-Block senden (Claude API Anforderung)
+        content.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: img.base64 },
+        })
+      } else {
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.type as string, data: img.base64 },
+        })
+      }
     }
     content.push({
       type: 'text',
