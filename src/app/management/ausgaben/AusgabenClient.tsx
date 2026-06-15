@@ -292,6 +292,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
   const fileRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
+  const pdfRef = useRef<HTMLInputElement>(null)
 
   // Edit-States
   const [editingProduct, setEditingProduct] = useState<string | null>(null)
@@ -336,7 +337,11 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
     setScanning(true); setScanError(null); setScannedItems(null)
     setScanSupplierId(''); setScanDate(new Date().toISOString().slice(0, 10))
     try {
-      const images = await Promise.all(arr.map(f => compressImage(f)))
+      const images = await Promise.all(arr.map(f =>
+        f.type === 'application/pdf'
+          ? f.arrayBuffer().then(buf => ({ base64: bufferToBase64(buf), type: 'application/pdf' }))
+          : compressImage(f)
+      ))
       const body = images.length === 1
         ? { image_base64: images[0].base64, image_type: images[0].type }
         : { images }
@@ -622,14 +627,19 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
             <div style={{ padding: '16px' }}>
               <div style={{ ...S.card, padding: '16px' }}>
                 <p style={{ margin: '0 0 4px', fontWeight: 600 }}>Beleg scannen</p>
-                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#888' }}>Langer Bon? Mehrere Fotos auf einmal auswählen.</p>
-                {/* Kamera: 1 Foto direkt aufnehmen */}
+                <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#888' }}>Foto, Galerie (mehrere), PDF oder Text.</p>
+                {/* Kamera: 1 Foto direkt */}
                 <input ref={fileRef} type="file" accept="image/*" capture="environment"
                   style={{ display: 'none' }}
                   onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
                 />
-                {/* Galerie: mehrere Fotos aus der Bibliothek wählen */}
+                {/* Galerie: mehrere Fotos */}
                 <input ref={galleryRef} type="file" accept="image/*" multiple
+                  style={{ display: 'none' }}
+                  onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
+                />
+                {/* PDF */}
+                <input ref={pdfRef} type="file" accept="application/pdf"
                   style={{ display: 'none' }}
                   onChange={e => { if (e.target.files?.length) handleFiles(e.target.files) }}
                 />
@@ -638,9 +648,12 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
                     {scanning ? '⏳ Scanning…' : '📸 Kamera'}
                   </button>
                   <button onClick={() => galleryRef.current?.click()} style={S.btn('#0D47A1')} disabled={scanning}>
-                    {scanning ? '⏳ Scanning…' : '🖼️ Galerie (mehrere)'}
+                    {scanning ? '⏳ …' : '🖼️ Galerie'}
                   </button>
-                  <button onClick={() => setShowPaste(s => !s)} style={S.btn('#555')}>📋 Text einfügen</button>
+                  <button onClick={() => pdfRef.current?.click()} style={S.btn('#2E7D32')} disabled={scanning}>
+                    {scanning ? '⏳ …' : '📄 PDF'}
+                  </button>
+                  <button onClick={() => setShowPaste(s => !s)} style={S.btn('#555')}>📋 Text</button>
                 </div>
                 {showPaste && (
                   <div style={{ marginTop: '12px' }}>
