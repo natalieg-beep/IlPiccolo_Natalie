@@ -1,6 +1,43 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-13 | Letzter Commit: siehe git log**
+**Stand: 2026-06-15 | Letzter Commit: siehe git log**
+
+## Letzte Änderungen (2026-06-15)
+
+### Scan-System: Großes Update
+
+#### Multi-Foto & Eingabewege
+- **4 Eingabewege** nebeneinander: 📸 Kamera · 🖼️ Galerie (mehrere) · 📄 PDF · 📋 Text
+- **Multi-Foto**: mehrere Fotos gleichzeitig wählen → Claude behandelt als einen langen Bon (dedupliziert)
+- **Bulk-PDF**: mehrere PDFs vom gleichen Händler → automatisch Bulk-Modus → kombinierte Produktliste, jedes Item mit eigenem Datum
+- **Bildkomprimierung**: Fotos werden client-seitig auf 1400px / JPEG 80% komprimiert (verhindert failed-to-fetch bei großen Handy-Fotos)
+- **PDF-Fix**: PDFs werden als `type:'document'` an Claude API gesendet (nicht `type:'image'`) — war Ursache für "failed to match"
+
+#### Händler-Erkennung (Edge Function)
+- **Bidirektionaler Match**: DB "Bostan" ↔ Claude "Bostan Sebze Meyve Pazarı" → beide Richtungen geprüft, längster Match gewinnt
+- **Aliases**: `suppliers.aliases text` Spalte — kommagetrennte Alternativnamen. Wenn Claude-Name kein Match → User wählt manuell → gelbes Banner "Als Alias speichern?" → nächstes Mal automatisch erkannt
+- **BH28/Il Piccolo nie als Händler**: Prompt klärt explizit: SAYIN-Sektion = Käufer = wir → ignorieren
+- **Trendyol**: alle Rechnungen mit trendyol.com URL / TY/TYA Fatura-Nr / Satış Kanalı=Trendyol → supplier_name = "Trendyol"
+- **Verkäufer = oben links**: auf e-Arşiv Rechnungen ist der Lieferant immer der Rechnungsaussteller (oben links), nicht der "SAYIN"-Empfänger
+
+#### Depozit (Flaschenkaution)
+- DPZ.CC, DPZ.FAN, DPZ.SPR, DPZ.ZERO werden als eigene Produkte erkannt (category: verpackung)
+  - `Depozit Coca-Cola`, `Depozit Coca-Cola Zero`, `Depozit Fanta`, `Depozit Sprite`
+- Alle anderen DPZ/Güvence/Pfand weiterhin ignoriert
+
+#### Scan-Historie (receipts Tabelle)
+- Edge Function gibt jetzt auch Belegkopf-Daten zurück: ETTN, Fatura-Nr, Gesamtbetrag, KDV, receipt_type
+- Beim Speichern → automatisch Eintrag in `receipts` Tabelle
+- **Neuer Tab "📋 Belege"** in Ausgaben: Liste aller gescannten Belege mit Händler, Fatura-Nr, Betrag, KDV, ETTN (gekürzt), Dateiname, Scan-Zeitstempel, Anzahl Positionen
+- Dateinamen werden beim Upload gespeichert (auch mehrere bei Bulk)
+
+#### SQL Patches
+- **patch28**: `receipts` Tabelle erweitert: `filename text`, `receipt_type text`, `vat_amount numeric`, `item_count integer`
+- **suppliers.aliases**: `ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS aliases text;`
+- **Trendyol**: `INSERT INTO suppliers (name, category) VALUES ('Trendyol', 'sonstiges'); UPDATE suppliers SET active = true WHERE name = 'Trendyol';`
+
+#### max_tokens
+- scan-receipt Edge Function: 2048 → 4096 (für lange Bons / Bulk)
 
 ## Letzte Änderungen (2026-06-13)
 
