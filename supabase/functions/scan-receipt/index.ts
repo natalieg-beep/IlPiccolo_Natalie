@@ -46,7 +46,7 @@ const PRODUCTS_PROMPT = `Du bist ein Assistent, der türkische Einkaufsbelege un
 Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
 
 {
-  "supplier_name": "<Name des Geschäfts / Händlers vom Belegkopf, z.B. 'Muhtar', 'BIM', 'Bostan' — null wenn nicht erkennbar>",
+  "supplier_name": "<Name des VERKÄUFERS/LIEFERANTEN — NICHT der Käufer. Siehe Erklärung unten.>",
   "date": "<Datum des Belegs als YYYY-MM-DD — null wenn nicht erkennbar>",
   "ettn": "<ETTN UUID falls vorhanden (e-fatura/e-arşiv), z.B. 97d0b2a2-... — sonst null>",
   "fatura_no": "<Rechnungsnummer falls vorhanden, z.B. YEA2026000001162 — sonst null>",
@@ -67,6 +67,13 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
     }
   ]
 }
+
+Wichtig zur Händler-Erkennung:
+- Der KÄUFER auf allen Rechnungen ist immer Il Piccolo N / BH28 Turizm / VKN 1681461403 / Adresse Kaş Andifli — das ist UNSER Betrieb. Niemals als supplier_name zurückgeben!
+- Auf e-Arşiv Rechnungen: "SAYIN ..." = Käufer = wir. IGNORIEREN für supplier_name.
+- Der VERKÄUFER/LIEFERANT steht oben links auf dem Beleg (vor der "SAYIN"-Sektion) oder ist der Aussteller der Rechnung.
+- Trendyol-Bestellungen (Web: trendyol.com oder Fatura-Nr beginnt mit TY/TYA): supplier_name = "Trendyol" — egal wer der individuelle Verkäufer ist.
+- Kassenbon (BIM, Migros, Şok, Metro etc.): supplier_name = Name des Geschäfts oben auf dem Bon.
 
 Regeln für items:
 - price_tl = GENAU der gedruckte Preis auf dem Beleg — KEINE Berechnungen, KEINE Umrechnungen!
