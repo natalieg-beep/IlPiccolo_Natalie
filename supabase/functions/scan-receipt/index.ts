@@ -72,7 +72,7 @@ Wichtig zur Händler-Erkennung:
 - Der KÄUFER auf allen Rechnungen ist immer Il Piccolo N / BH28 Turizm / VKN 1681461403 / Adresse Kaş Andifli — das ist UNSER Betrieb. Niemals als supplier_name zurückgeben!
 - Auf e-Arşiv Rechnungen: "SAYIN ..." = Käufer = wir. IGNORIEREN für supplier_name.
 - Der VERKÄUFER/LIEFERANT steht oben links auf dem Beleg (vor der "SAYIN"-Sektion) oder ist der Aussteller der Rechnung.
-- Trendyol-Bestellungen (Web: trendyol.com oder Fatura-Nr beginnt mit TY/TYA): supplier_name = "Trendyol" — egal wer der individuelle Verkäufer ist.
+- Trendyol-Bestellungen erkennen: Web-Adresse enthält "trendyol.com" ODER Fatura-Nr beginnt mit "TY" oder "TYA" ODER Satış Kanalı = "Trendyol" → supplier_name IMMER = "Trendyol" (nie den individuellen Verkäufer-Namen oben links).
 - Kassenbon (BIM, Migros, Şok, Metro etc.): supplier_name = Name des Geschäfts oben auf dem Bon.
 
 Regeln für items:
