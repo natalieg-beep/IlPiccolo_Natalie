@@ -245,13 +245,17 @@ Deno.serve(async (req) => {
 
     let supplier_match: { id: string; name: string; category: string } | null = null
     if (parsed.supplier_name) {
-      const { data } = await db
-        .from('suppliers')
-        .select('id, name, category')
-        .ilike('name', `%${parsed.supplier_name}%`)
-        .limit(1)
-        .maybeSingle()
-      if (data) supplier_match = data
+      const sn = parsed.supplier_name.toLowerCase()
+
+      // Versuch 1: DB-Name ist Teilstring von Claude-Name (z.B. DB "Bostan", Claude "Bostan Sebze Meyve")
+      const { data: allSuppliers } = await db.from('suppliers').select('id, name, category')
+      if (allSuppliers) {
+        // Längsten Match bevorzugen (z.B. "Altım Şen Gıda" schlägt "Alt")
+        const matched = (allSuppliers as { id: string; name: string; category: string }[])
+          .filter(s => sn.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(sn))
+          .sort((a, b) => b.name.length - a.name.length)[0]
+        if (matched) supplier_match = matched
+      }
     }
 
     return new Response(
@@ -298,15 +302,17 @@ Deno.serve(async (req) => {
     if (data) duplicate = data
   }
 
-  // Händler-Match in Supabase (für Vorauswahl in UI)
+  // Händler-Match in Supabase (bidirektional, für Vorauswahl in UI)
   let supplier_match: { id: string; name: string; category: string } | null = null
   if (expense.supplier_name) {
-    const { data } = await db
-      .from('suppliers')
-      .select('id, name, category')
-      .ilike('name', `%${expense.supplier_name}%`)
-      .maybeSingle()
-    if (data) supplier_match = data
+    const sn = expense.supplier_name.toLowerCase()
+    const { data: allS } = await db.from('suppliers').select('id, name, category')
+    if (allS) {
+      const matched = (allS as { id: string; name: string; category: string }[])
+        .filter(s => sn.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(sn))
+        .sort((a, b) => b.name.length - a.name.length)[0]
+      if (matched) supplier_match = matched
+    }
   }
 
   // Bestehenden Eintrag in expenses suchen (für "Beleg zuordnen" statt Neu anlegen)
