@@ -60,6 +60,16 @@ export type Price = {
   price_per_unit: number; date: string; source: string; receipt_ref: string | null
   notes: string | null; is_private: boolean; vat_rate: number | null
 }
+export type Receipt = {
+  id: string; supplier_id: string | null; ettn: string | null; fatura_no: string | null
+  date: string | null; total_tl: number | null; vat_amount: number | null
+  receipt_type: string | null; source: string; scanned_at: string
+  filename: string | null; item_count: number | null; notes: string | null
+}
+type ScanReceiptMeta = {
+  ettn?: string | null; fatura_no?: string | null; total_tl?: number | null
+  vat_amount?: number | null; receipt_type?: string | null; filename?: string | null
+}
 type ScannedItem = {
   name: string; price_tl: number; is_gross?: boolean; quantity: number; unit: string
   vat_rate: number | null; category_hint: string; notes: string
@@ -269,11 +279,12 @@ const SUPPLIER_CATS: Record<string, string> = {
   behoerde: '🏛️ Behörde', telekommunikation: '📡 Telekom',
 }
 
-export default function AusgabenClient({ products, allPrices, suppliers }: { products: Product[]; allPrices: Price[]; suppliers: Supplier[] }) {
+export default function AusgabenClient({ products, allPrices, suppliers, receipts: initialReceipts }: { products: Product[]; allPrices: Price[]; suppliers: Supplier[]; receipts: Receipt[] }) {
   const supabase = createClient()
 
   // State
-  const [mainTab, setMainTab] = useState<'produkte' | 'auswertung'>('produkte')
+  const [mainTab, setMainTab] = useState<'produkte' | 'auswertung' | 'belege'>('produkte')
+  const [localReceipts, setLocalReceipts] = useState<Receipt[]>(initialReceipts)
   const [view, setView] = useState<'matrix' | 'scan' | 'manual_product' | 'manual_price'>('matrix')
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null)
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
@@ -291,6 +302,8 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
   const [saving, setSaving] = useState(false)
   const [localProducts, setLocalProducts] = useState<Product[]>(products)
   const [localPrices, setLocalPrices] = useState<Price[]>(allPrices)
+  const [scanReceiptMeta, setScanReceiptMeta] = useState<ScanReceiptMeta | null>(null)
+  const [scanFilenames, setScanFilenames] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
   const pdfRef = useRef<HTMLInputElement>(null)
@@ -320,16 +333,22 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
   // ── Scan ──────────────────────────────────────────────────────────────────
 
-  function applyScanResult(json: { items?: ScannedItem[]; supplier_name?: string | null; supplier_match?: { id: string; name: string } | null; date?: string | null }) {
+  function applyScanResult(json: { items?: ScannedItem[]; supplier_name?: string | null; supplier_match?: { id: string; name: string } | null; date?: string | null; ettn?: string | null; fatura_no?: string | null; total_tl?: number | null; vat_amount?: number | null; receipt_type?: string | null }) {
     setScannedItems(matchItems(json.items ?? []))
     if (json.supplier_match?.id) {
       setScanSupplierId(json.supplier_match.id)
     } else if (json.supplier_name) {
-      // Händler erkannt aber nicht in DB → "+ Neu" vorausfüllen
       setNewSupplierName(json.supplier_name)
       setShowNewSupplier(true)
     }
     if (json.date) setScanDate(json.date)
+    setScanReceiptMeta({
+      ettn: json.ettn ?? null,
+      fatura_no: json.fatura_no ?? null,
+      total_tl: json.total_tl ?? null,
+      vat_amount: json.vat_amount ?? null,
+      receipt_type: json.receipt_type ?? null,
+    })
   }
 
   async function handleFiles(files: FileList | File[]) {
@@ -337,6 +356,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
     if (arr.length === 0) return
     setScanning(true); setScanError(null); setScannedItems(null)
     setScanSupplierId(''); setScanDate(new Date().toISOString().slice(0, 10))
+    setScanFilenames(arr.map(f => f.name)); setScanReceiptMeta(null)
     try {
       const images = await Promise.all(arr.map(f =>
         f.type === 'application/pdf'
@@ -443,9 +463,25 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
         }).select().single()
         if (newPrice) setLocalPrices(prev => [newPrice as Price, ...prev])
       }
+      // Receipt-Eintrag für Scan-Historie
+      const { data: newReceipt } = await supabase.from('receipts').insert({
+        supplier_id:  scanSupplierId || null,
+        ettn:         scanReceiptMeta?.ettn ?? null,
+        fatura_no:    scanReceiptMeta?.fatura_no ?? null,
+        date:         scanDate,
+        total_tl:     scanReceiptMeta?.total_tl ?? null,
+        vat_amount:   scanReceiptMeta?.vat_amount ?? null,
+        receipt_type: scanReceiptMeta?.receipt_type ?? null,
+        source:       'pdf',
+        filename:     scanFilenames.length > 0 ? scanFilenames.join(', ') : null,
+        item_count:   scannedItems?.length ?? null,
+      }).select().single()
+      if (newReceipt) setLocalReceipts(prev => [newReceipt as Receipt, ...prev])
+
       setScannedItems(null)
       setScanSupplierId('')
       setScanDate(new Date().toISOString().slice(0, 10))
+      setScanReceiptMeta(null); setScanFilenames([])
       setView('matrix')
     } finally {
       setSaving(false)
@@ -599,7 +635,7 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
 
       {/* Main-Tab-Bar */}
       <div style={{ padding: '8px 12px', background: '#FFFDF9', borderBottom: '1px solid #E5E0D8', display: 'flex', gap: '6px' }}>
-        {([['produkte', '🛒 Produkte'], ['auswertung', '📊 Auswertung']] as const).map(([tab, label]) => (
+        {([['produkte', '🛒 Produkte'], ['auswertung', '📊 Auswertung'], ['belege', '📋 Belege']] as const).map(([tab, label]) => (
           <button key={tab} onClick={() => setMainTab(tab)} style={{
             flex: 1, padding: '8px', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: mainTab === tab ? 700 : 400,
             background: mainTab === tab ? '#1A1207' : 'transparent', color: mainTab === tab ? '#FFF' : '#8A7A60', cursor: 'pointer',
@@ -610,6 +646,49 @@ export default function AusgabenClient({ products, allPrices, suppliers }: { pro
       {/* Auswertungs-Tab */}
       {mainTab === 'auswertung' && (
         <AuswertungView prices={localPrices} products={localProducts} />
+      )}
+
+      {/* Belege-Tab */}
+      {mainTab === 'belege' && (
+        <div style={{ padding: '16px' }}>
+          <p style={{ margin: '0 0 12px', fontWeight: 700, fontSize: '15px' }}>📋 Scan-Historie ({localReceipts.length})</p>
+          {localReceipts.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#A09880', padding: '40px 20px' }}>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+              <div>Noch keine Belege gescannt</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {localReceipts.map(r => {
+                const sup = localSuppliers.find(s => s.id === r.supplier_id)
+                return (
+                  <div key={r.id} style={{ background: '#FFF', borderRadius: '10px', padding: '12px 14px', border: '1px solid #E5E0D8' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '14px' }}>{sup?.name ?? '—'}</div>
+                        <div style={{ fontSize: '11px', color: '#8A7A60', marginTop: '2px' }}>
+                          {r.fatura_no && <span style={{ marginRight: '8px' }}>🧾 {r.fatura_no}</span>}
+                          {r.receipt_type && <span style={{ marginRight: '8px', textTransform: 'uppercase', fontSize: '10px', background: '#F0ECE4', padding: '1px 5px', borderRadius: '4px' }}>{r.receipt_type}</span>}
+                        </div>
+                        {r.filename && <div style={{ fontSize: '10px', color: '#B0A898', marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {r.filename}</div>}
+                        {r.ettn && <div style={{ fontSize: '10px', color: '#B0A898', marginTop: '2px', fontFamily: 'monospace' }}>ETTN: {r.ettn.slice(0, 18)}…</div>}
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        {r.total_tl != null && <div style={{ fontWeight: 700, fontSize: '15px' }}>{r.total_tl.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>}
+                        {r.vat_amount != null && <div style={{ fontSize: '11px', color: '#8A7A60' }}>KDV: {r.vat_amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>}
+                        <div style={{ fontSize: '11px', color: '#A09880', marginTop: '2px' }}>{r.date ?? '—'}</div>
+                        {r.item_count != null && <div style={{ fontSize: '10px', color: '#B0A898' }}>{r.item_count} Pos.</div>}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#C0B8A8', marginTop: '6px', borderTop: '1px solid #F0ECE8', paddingTop: '5px' }}>
+                      Gescannt: {new Date(r.scanned_at).toLocaleString('de-DE')}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Produkte-Tab */}

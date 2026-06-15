@@ -7,15 +7,17 @@ import KostenClient, { type ExpenseCategory, type Expense, type Supplier } from 
 
 type Product  = { id: string; name: string; category: string; unit: string; notes: string | null; active: boolean }
 type Price    = { id: string; product_id: string; price_tl: number; quantity: number; unit: string; price_per_unit: number; date: string; source: string; receipt_ref: string | null; notes: string | null; is_private: boolean; vat_rate: number | null }
+type Receipt  = { id: string; supplier_id: string | null; ettn: string | null; fatura_no: string | null; date: string | null; total_tl: number | null; vat_amount: number | null; receipt_type: string | null; source: string; scanned_at: string; filename: string | null; item_count: number | null; notes: string | null }
 
 export default function AusgabenPageClient({
-  products, allPrices, categories, expenses, suppliers,
+  products, allPrices, categories, expenses, suppliers, receipts,
 }: {
   products: Product[]
   allPrices: Price[]
   categories: ExpenseCategory[]
   expenses: Expense[]
   suppliers: Supplier[]
+  receipts: Receipt[]
 }) {
   const [tab, setTab] = useState<'einkauf' | 'kosten'>('einkauf')
 
@@ -46,7 +48,7 @@ export default function AusgabenPageClient({
 
       {/* Content */}
       {tab === 'einkauf'
-        ? <AusgabenClient products={products} allPrices={allPrices} suppliers={suppliers} />
+        ? <AusgabenClient products={products} allPrices={allPrices} suppliers={suppliers} receipts={receipts} />
         : <KostenClient categories={categories} expenses={expenses} suppliers={suppliers} />
       }
     </div>

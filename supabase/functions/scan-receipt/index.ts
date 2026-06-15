@@ -48,6 +48,11 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
 {
   "supplier_name": "<Name des Geschäfts / Händlers vom Belegkopf, z.B. 'Muhtar', 'BIM', 'Bostan' — null wenn nicht erkennbar>",
   "date": "<Datum des Belegs als YYYY-MM-DD — null wenn nicht erkennbar>",
+  "ettn": "<ETTN UUID falls vorhanden (e-fatura/e-arşiv), z.B. 97d0b2a2-... — sonst null>",
+  "fatura_no": "<Rechnungsnummer falls vorhanden, z.B. YEA2026000001162 — sonst null>",
+  "total_tl": <Gesamtbetrag (Ödenecek Tutar / Genel Toplam) als Zahl — null wenn nicht erkennbar>,
+  "vat_amount": <KDV-Gesamtbetrag als Zahl — null wenn nicht erkennbar>,
+  "receipt_type": <"e-fatura" | "e-arsiv" | "kassenbon" | "handrechnung" — null wenn nicht erkennbar>,
   "items": [
     {
       "name": "Produktname auf Deutsch wenn möglich, sonst Türkisch",
@@ -213,7 +218,11 @@ Deno.serve(async (req) => {
 
   // ── Modus: Produkte ────────────────────────────────────────────────────────
   if (mode === 'products') {
-    let parsed: { supplier_name?: string | null; date?: string | null; items?: ExtractedItem[] } = {}
+    let parsed: {
+      supplier_name?: string | null; date?: string | null; items?: ExtractedItem[]
+      ettn?: string | null; fatura_no?: string | null; total_tl?: number | null
+      vat_amount?: number | null; receipt_type?: string | null
+    } = {}
     try {
       parsed = JSON.parse(rawText)
     } catch {
@@ -239,7 +248,17 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ items, supplier_name: parsed.supplier_name ?? null, date: parsed.date ?? null, supplier_match }),
+      JSON.stringify({
+        items,
+        supplier_name:  parsed.supplier_name ?? null,
+        date:           parsed.date ?? null,
+        supplier_match,
+        ettn:           parsed.ettn ?? null,
+        fatura_no:      parsed.fatura_no ?? null,
+        total_tl:       parsed.total_tl ?? null,
+        vat_amount:     parsed.vat_amount ?? null,
+        receipt_type:   parsed.receipt_type ?? null,
+      }),
       { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
     )
   }

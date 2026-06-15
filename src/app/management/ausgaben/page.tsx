@@ -12,12 +12,14 @@ export default async function Page() {
     { data: categories },
     { data: expenses },
     { data: suppliers },
+    { data: receipts },
   ] = await Promise.all([
     supabase.from('purchase_products').select('*').eq('active', true).order('category').order('name'),
     supabase.from('purchase_prices').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('expense_categories').select('*').eq('active', true).order('sort'),
     supabase.from('expenses').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('suppliers').select('id, name, category').eq('active', true).order('name'),
+    supabase.from('receipts').select('*').order('scanned_at', { ascending: false }).limit(200),
   ])
 
   return (
@@ -27,6 +29,7 @@ export default async function Page() {
       categories={categories ?? []}
       expenses={expenses ?? []}
       suppliers={suppliers ?? []}
+      receipts={receipts ?? []}
     />
   )
 }
