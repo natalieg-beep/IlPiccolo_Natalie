@@ -102,6 +102,8 @@ export default function KostenClient({
   type ExpenseMatch = { id: string; description: string | null; amount_gross: number; date: string | null; has_receipt: boolean }
   const [expenseMatch, setExpenseMatch] = useState<ExpenseMatch | null>(null)
   const [matchAssigned, setMatchAssigned] = useState(false)
+  const [targetExpenseId, setTargetExpenseId] = useState<string | null>(null) // direktes Zuordnen per "kein Beleg"-Tap
+  const directFileRef = useRef<HTMLInputElement>(null)
 
   // ── Berechnungen ─────────────────────────────────────────────────────────────
 
@@ -229,16 +231,61 @@ export default function KostenClient({
     }
   }
 
-  // Beleg einem bestehenden Eintrag zuordnen
-  async function assignReceiptToMatch() {
-    if (!expenseMatch) return
+  // Beleg einem bestehenden Eintrag zuordnen (Auto-Match oder direktes Target)
+  async function assignReceiptToMatch(directId?: string) {
+    const targetId = directId ?? expenseMatch?.id
+    if (!targetId) return
     setSaving(true)
-    const { error } = await supabase.from('expenses').update({ has_receipt: true }).eq('id', expenseMatch.id)
+    const { error } = await supabase.from('expenses').update({ has_receipt: true }).eq('id', targetId)
     if (error) { alert('Fehler: ' + error.message); setSaving(false); return }
-    setExpenses(prev => prev.map(e => e.id === expenseMatch.id ? { ...e, has_receipt: true } : e))
+    setExpenses(prev => prev.map(e => e.id === targetId ? { ...e, has_receipt: true } : e))
     setMatchAssigned(true)
     setSaving(false)
+    setTargetExpenseId(null)
     setTimeout(() => { setView('uebersicht'); setScanResult(null); setExpenseMatch(null); setMatchAssigned(false) }, 1500)
+  }
+
+  // Direkter Scan für einen bestimmten Expense-Eintrag
+  async function handleDirectScan(file: File, expenseId: string) {
+    setScanning(true); setScanError(null); setScanResult(null); setDupWarning(null); setExpenseMatch(null); setMatchAssigned(false)
+    try {
+      const isPdf = file.type === 'application/pdf'
+      let base64: string
+      if (isPdf) {
+        const buf = await file.arrayBuffer()
+        base64 = bufferToBase64(buf)
+      } else {
+        // Komprimieren wie in AusgabenClient
+        const compressed = await new Promise<string>((resolve, reject) => {
+          const img = new Image(); const url = URL.createObjectURL(file)
+          img.onload = () => {
+            URL.revokeObjectURL(url)
+            const MAX = 1400; let { width, height } = img
+            if (width > MAX || height > MAX) { if (width > height) { height = Math.round(height * MAX / width); width = MAX } else { width = Math.round(width * MAX / height); height = MAX } }
+            const c = document.createElement('canvas'); c.width = width; c.height = height
+            c.getContext('2d')!.drawImage(img, 0, 0, width, height)
+            resolve(c.toDataURL('image/jpeg', 0.8).split(',')[1])
+          }
+          img.onerror = reject; img.src = url
+        })
+        base64 = compressed
+      }
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-receipt`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: base64, image_type: isPdf ? 'application/pdf' : 'image/jpeg', mode: 'expense' }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Scan-Fehler')
+      setScanResult(json)
+      // Direkt dem Ziel-Expense zuordnen
+      await assignReceiptToMatch(expenseId)
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : 'Unbekannter Fehler')
+      setView('uebersicht')
+    } finally {
+      setScanning(false)
+    }
   }
 
   // ── Netto-Berechnung ─────────────────────────────────────────────────────────
@@ -392,7 +439,12 @@ export default function KostenClient({
                             <span style={{ fontSize: '11px', color: '#8A7A60' }}>{METHOD_LABEL[e.payment_method] ?? e.payment_method}</span>
                           )}
                           {!e.has_receipt && (
-                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#FFF3E0', color: '#E65100' }}>kein Beleg</span>
+                            <button
+                              onClick={() => { setTargetExpenseId(e.id); directFileRef.current?.click() }}
+                              style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#FFF3E0', color: '#E65100', border: '1px dashed #E65100', cursor: 'pointer', fontWeight: 600 }}
+                              title="Beleg hochladen und zuordnen">
+                              {scanning && targetExpenseId === e.id ? '⏳' : '📎 Beleg zuordnen'}
+                            </button>
                           )}
                           {e.notes && <span style={{ fontSize: '11px', color: '#8A7A60', fontStyle: 'italic' }}>{e.notes}</span>}
                         </div>
@@ -447,7 +499,13 @@ export default function KostenClient({
                         </div>
                         <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: pt.bg, color: pt.color, fontWeight: 600 }}>{pt.label}</span>
-                          {!e.has_receipt && <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#FFF3E0', color: '#E65100' }}>kein Beleg</span>}
+                          {!e.has_receipt && (
+                            <button
+                              onClick={() => { setTargetExpenseId(e.id); directFileRef.current?.click() }}
+                              style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: '#FFF3E0', color: '#E65100', border: '1px dashed #E65100', cursor: 'pointer', fontWeight: 600 }}>
+                              {scanning && targetExpenseId === e.id ? '⏳' : '📎 Beleg zuordnen'}
+                            </button>
+                          )}
                           {e.notes && <span style={{ fontSize: '11px', color: '#8A7A60', fontStyle: 'italic' }}>{e.notes}</span>}
                         </div>
                       </div>
@@ -473,6 +531,9 @@ export default function KostenClient({
         </div>
         <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleScanFile(f); e.target.value = '' }} />
+        {/* Direkter Beleg-Upload für bestehende Einträge */}
+        <input ref={directFileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f && targetExpenseId) handleDirectScan(f, targetExpenseId); e.target.value = '' }} />
 
         {scanning && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -530,7 +591,7 @@ export default function KostenClient({
               : <span style={{ color: '#E65100', marginLeft: '8px' }}>⚠ kein Beleg hinterlegt</span>}
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={assignReceiptToMatch} disabled={saving || expenseMatch.has_receipt}
+            <button onClick={() => assignReceiptToMatch()} disabled={saving || expenseMatch.has_receipt}
               style={{ flex: 2, padding: '10px', background: expenseMatch.has_receipt ? '#E0E0E0' : '#2E7D32', color: '#FFF', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: expenseMatch.has_receipt ? 'default' : 'pointer' }}>
               {expenseMatch.has_receipt ? '✓ Beleg bereits zugeordnet' : saving ? '…' : '✓ Beleg diesem Eintrag zuordnen'}
             </button>
