@@ -5,6 +5,7 @@ import Link from 'next/link'
 import AusgabenClient from './AusgabenClient'
 import KostenClient, { type ExpenseCategory, type Expense, type Supplier } from './KostenClient'
 import BatchScanClient from './BatchScanClient'
+import BulkReviewClient from './BulkReviewClient'
 
 type Product  = { id: string; name: string; category: string; unit: string; notes: string | null; active: boolean }
 type Price    = { id: string; product_id: string; price_tl: number; quantity: number; unit: string; price_per_unit: number; date: string; source: string; receipt_ref: string | null; notes: string | null; is_private: boolean; vat_rate: number | null }
@@ -20,7 +21,7 @@ export default function AusgabenPageClient({
   suppliers: Supplier[]
   receipts: Receipt[]
 }) {
-  const [tab, setTab] = useState<'einkauf' | 'kosten' | 'batch'>('einkauf')
+  const [tab, setTab] = useState<'einkauf' | 'kosten' | 'batch' | 'review'>('einkauf')
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', background: '#F7F4F0', minHeight: '100dvh', paddingBottom: 'calc(56px + env(safe-area-inset-bottom))' }}>
@@ -50,6 +51,12 @@ export default function AusgabenPageClient({
             color: tab === 'batch' ? '#FFF' : 'rgba(255,255,255,0.6)',
             fontWeight: tab === 'batch' ? 700 : 400,
           }}>📥 Batch</button>
+          <button onClick={() => setTab('review')} style={{
+            flex: 1, padding: '8px 4px', border: 'none', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+            background: tab === 'review' ? '#B8882A' : 'transparent',
+            color: tab === 'review' ? '#FFF' : 'rgba(255,255,255,0.6)',
+            fontWeight: tab === 'review' ? 700 : 400,
+          }}>📋 Review</button>
         </div>
       </div>
 
@@ -57,6 +64,7 @@ export default function AusgabenPageClient({
       {tab === 'einkauf' && <AusgabenClient products={products} allPrices={allPrices} suppliers={suppliers} receipts={receipts} />}
       {tab === 'kosten' && <KostenClient categories={categories} expenses={expenses} suppliers={suppliers} />}
       {tab === 'batch' && <BatchScanClient />}
+      {tab === 'review' && <BulkReviewClient />}
     </div>
   )
 }
