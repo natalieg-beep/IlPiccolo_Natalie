@@ -426,7 +426,7 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
           const netto  = toNetto(item)
           const brutto = item.vat_rate ? netto * (1 + item.vat_rate / 100) : netto
           const kdv    = item.vat_rate ? netto * item.vat_rate / 100 : null
-          await supabase.from('expenses').insert({
+          const { error: expErr } = await supabase.from('expenses').insert({
             description:    item.name,
             amount_gross:   brutto,
             amount_net:     netto,
@@ -439,21 +439,23 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
             source:         'scan',
             category_id:    null, // "Nicht kategorisiert" → Nutzer kann nachträglich zuweisen
           })
+          if (expErr) throw new Error(`Invest-Posten "${item.name}" konnte nicht gespeichert werden: ${expErr.message}`)
           continue
         }
 
         // 🏢 Geschäftlich / 🏠 Privat → purchase_prices
         let productId = item.matched_product_id
         if (item.is_new_product && item.new_product_name) {
-          const { data: newP } = await supabase.from('purchase_products').insert({
+          const { data: newP, error: prodErr } = await supabase.from('purchase_products').insert({
             name: item.new_product_name,
             category: item.new_product_category || 'sonstiges',
             unit: item.unit,
           }).select().single()
+          if (prodErr) throw new Error(`Produkt "${item.new_product_name}" konnte nicht angelegt werden: ${prodErr.message}`)
           if (newP) { productId = newP.id; setLocalProducts(prev => [...prev, newP as Product]) }
         }
-        if (!productId) continue
-        const { data: newPrice } = await supabase.from('purchase_prices').insert({
+        if (!productId) { console.warn('Kein productId für', item.name, '— übersprungen'); continue }
+        const { data: newPrice, error: priceErr } = await supabase.from('purchase_prices').insert({
           product_id: productId,
           price_tl:   toNetto(item),   // immer Netto speichern
           quantity:   item.quantity,
@@ -464,10 +466,11 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
           supplier_id: scanSupplierId || null,
           vat_rate:   item.vat_rate ?? null,
         }).select().single()
+        if (priceErr) throw new Error(`Preis für "${item.name}" konnte nicht gespeichert werden: ${priceErr.message}`)
         if (newPrice) setLocalPrices(prev => [newPrice as Price, ...prev])
       }
-      // Receipt-Eintrag für Scan-Historie
-      const { data: newReceipt } = await supabase.from('receipts').insert({
+      // Receipt-Eintrag für Scan-Historie (ETTN-Duplikat wird ignoriert — Posten sind bereits gespeichert)
+      const { data: newReceipt, error: receiptErr } = await supabase.from('receipts').insert({
         supplier_id:  scanSupplierId || null,
         ettn:         scanReceiptMeta?.ettn ?? null,
         fatura_no:    scanReceiptMeta?.fatura_no ?? null,
@@ -479,6 +482,9 @@ export default function AusgabenClient({ products, allPrices, suppliers, receipt
         filename:     scanFilenames.length > 0 ? scanFilenames.join(', ') : null,
         item_count:   scannedItems?.length ?? null,
       }).select().single()
+      if (receiptErr && !receiptErr.message.includes('duplicate') && receiptErr.code !== '23505') {
+        console.error('Receipt-Eintrag fehlgeschlagen:', receiptErr.message)
+      }
       if (newReceipt) setLocalReceipts(prev => [newReceipt as Receipt, ...prev])
 
       setScannedItems(null)
