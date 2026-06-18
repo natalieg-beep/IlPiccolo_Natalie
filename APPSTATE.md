@@ -1,6 +1,56 @@
 # Il Piccolo N — App Status & Entwicklungshistorie
 
-**Stand: 2026-06-15 | Letzter Commit: siehe git log**
+**Stand: 2026-06-17 (Session 3) | Letzter Commit: adecc88**
+
+> ⚠️ **NÄCHSTER GROSSER SCHRITT: Ausgaben-System Neuaufbau** → siehe Abschnitt [Konzept: Receipt-First Pipeline](#konzept-receipt-first-pipeline) am Ende dieser Datei.
+
+## Bug-Fix: Invest-Posten beim Scan (2026-06-17, Session 3)
+
+### Problem
+`expenses.source` hatte CHECK constraint nur `('manual','foto','pdf','import')` — `'scan'` fehlte.
+Folge: **Alle Invest-Posten beim Scan wurden lautlos verworfen** — kein Fehler sichtbar, kein Eintrag in DB.
+
+### Fix
+- **patch29** (`supabase/patch29_expenses_source_scan.sql`): constraint erweitert um `'scan'`
+- **AusgabenClient.tsx**: Fehlerbehandlung bei allen DB-Inserts (expenses, purchase_products, purchase_prices, receipts)
+- ETTN-Duplikat bei receipts wird jetzt korrekt ignoriert (code 23505)
+- Commit: `adecc88`
+
+### Schadensanalyse
+- 73 Rechnungen eingescannt — 48 mit 0₺ in purchase_prices, aber durch Excel-Import abgedeckt → OK
+- **9 Rechnungen komplett fehlend** (müssen nochmal eingescannt werden, jetzt funktioniert Invest):
+  - PRO2026000000009 (45.000₺, 16.06) · GRZ2026000000001 (36.000₺, 09.04)
+  - Trendyol 3×PDFs (13.086₺, 14.04) · 62954831013305 (6.350₺, 08.06)
+  - WhatsApp Foto (960₺, 08.04) · MPA2026000001809 (577₺, 12.06)
+  - Trendyol TEA (355₺, 10.06) · Trendyol TYA (299₺, 10.06) · Trendyol TYF (114₺, 11.06)
+
+### Duplikat-Scan Muhtar bereinigt
+- Muhtar A002026000002044 (386₺, 14.06.2026) wurde 2× eingescannt
+- ETTN-Schutz hat receipts-Duplikat verhindert ✅
+- purchase_prices: 2 Duplikate gelöscht, 1 doppeltes purchase_product gelöscht
+- 3 fehlende Invest-Posten manuell nachgetragen: LAV Kavanoz (70₺), Sunum Tabağı (120₺), Cam Kavanoz (30₺)
+
+## Nachträgliches Beleg-Matching (2026-06-15, Session 2)
+
+### Problem
+Invest-Kosten wurden ursprünglich aus einer Tabellendatei importiert — ohne Belege.
+Die Rechnungen wurden erst später (heute) einzeln eingescannt. Dadurch standen ~108 Einträge auf "kein Beleg".
+
+### Lösung: Automatisches Retroaktiv-Matching
+- **Methode**: Supabase REST API (curl) — kein SQL CLI nötig
+- **Matching-Kriterien**:
+  - Betrag exakt gleich (0% Abweichung)
+  - Gleiches Datum (Tages-Match)
+- **Ergebnis**: 40 von 108 Einträgen automatisch gematcht → `has_receipt = true` gesetzt
+- **Nicht gematcht (58)**: POS/SANAL POS Bankabbuchungen, Einträge ohne Datum, Beträge mit >5% Abweichung oder anderem Datum → manuelle Zuordnung via "📎 Beleg zuordnen" Button in der App
+- **Kein Code-Deploy nötig**: Direkt via REST API gepatcht
+
+### Beispiele automatisch zugeordnet
+- META ENDÜSTRİYEL MUTFAK 63.516₺ ← FATURA.pdf
+- Menulux 82.600₺ ← FAT. (41).pdf
+- Hakbilenler 312.000₺ ← BH28 TURİZM.pdf
+- MUSA KARA 15.600₺ ← BH28_TURIZM...GIB2026000000079.pdf
+- Bauhaus, IKEA, SARICAOĞLU, META, ALPİNPLAST, GÖREN LOJİSTİK usw.
 
 ## Letzte Änderungen (2026-06-15)
 
@@ -482,19 +532,129 @@ Tabelle für periodische Umsatz-Snapshots aus externen Geräten und der App.
 ---
 
 ## Nächste Schritte
-1. **Rezepte** (`/management/rezepte`): Produkte den Zutaten zuweisen → Preiskalkulation aktivieren
-2. **Laufende Kosten nacherfassen**: Gas, Strom, Wasser (Beträge noch offen)
-3. **Belege hochladen**: purchase_prices alte Einträge bereinigen, echte Belege per Scan eintragen
-4. **Burrata-Zähler**: kommt später (Karte wird noch hochgeladen)
-5. **Einnahmen**: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
-6. **Boxen 7–10**: kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
+
+### 🔴 Priorität 1: Ausgaben-System Neuaufbau (Receipt-First Pipeline)
+→ Vollständiges Konzept: siehe Abschnitt unten
+→ Entscheidung (17.06.2026): Neustart mit receipt_items als Staging-Schicht
+→ Alle 100 Rechnungen werden neu eingescannt (Batch-Upload)
+→ purchase_prices + expenses werden geleert (Import-Daten bleiben)
+
+### Weitere offene Punkte
+1. **Rezepte** (`/management/rezepte`): Produkte den Zutaten zuweisen → Preiskalkulation
+2. **Laufende Kosten**: Gas, Strom, Wasser — Beträge noch offen
+3. **Burrata-Zähler**: kommt später
+4. **Einnahmen**: Differenz App↔Gerätekasse nicht sichtbar
+5. **Boxen 7–10**: kommen noch dazu
 
 ---
 
 ## Bekannte offene Punkte
 - Fixkosten-Seite: noch keine Funktion (ausgegraut)
-- Burrata-Zähler (kommt später, Karte wird noch hochgeladen)
+- Burrata-Zähler (Karte wird noch hochgeladen)
 - Einnahmen: Differenz App↔Gerätekasse nicht in Einnahmen-Seite sichtbar
-- Boxen 7–10 kommen noch dazu (aktuell 6 physische Boxen, Grid zeigt schon 10)
-- Laufende Kosten (Gas, Strom, Wasser) noch nicht erfasst — Beträge offen
-- purchase_prices: bisherige Preise noch ohne Händler + echtes Datum → neu einlesen
+- Boxen 7–10 kommen noch dazu (aktuell 6 physische Boxen)
+- Laufende Kosten (Gas, Strom, Wasser) noch nicht erfasst
+
+---
+
+## Konzept: Receipt-First Pipeline
+
+> **Beschlossen: 2026-06-17 (Session 3)**
+> Grund: bisheriges System hatte lautlose Fehler, zwei getrennte Welten (purchase_prices vs. expenses), keine Batch-Fähigkeit, keine Nachvollziehbarkeit.
+
+### Warum Supabase dafür geeignet ist
+- **Realtime**: Batch-Scan zeigt live Fortschritt (Edge Function inserted → App subscribt per Realtime)
+- **Edge Functions**: Claude-Aufrufe bleiben dort, neu: parallelisierbar (5 PDFs pro Aufruf)
+- **Generated Columns**: `amount_net` aus `amount_gross / (1 + vat_rate/100)` — keine Rundungsfehler mehr
+- **Supabase Storage**: PDFs direkt ablegen, nicht nur Dateiname speichern → Rechnung jederzeit wieder öffnen
+- **Concurrent Writes**: 10 parallele Edge Functions → kein Problem für Postgres
+
+### Das Kernproblem des alten Systems
+```
+purchase_prices  ←→  purchase_products   (Einkauf, Produkt-Katalog)
+expenses                                  (Invest + Fixkosten, Freitext)
+```
+Zwei getrennte Welten, keine gemeinsame Sicht, Fehler gehen still verloren, kein Batch-Scan.
+
+### Das neue Datenmodell
+
+```
+receipts  (bleibt, wird erweitert um batch_id + storage_path)
+  └── receipt_items  ← NEU: ALLE Positionen jeder Rechnung als Staging
+        ├── id
+        ├── receipt_id          → receipts
+        ├── batch_id            → scan_batches (welcher Upload-Vorgang)
+        ├── name                (Produktname wie auf Rechnung)
+        ├── amount_gross        (Brutto, wie gedruckt)
+        ├── amount_net          (GENERATED: amount_gross / (1 + vat_rate/100))
+        ├── vat_rate            (%0 / %10 / %20)
+        ├── vat_amount          (GENERATED)
+        ├── quantity
+        ├── unit
+        ├── date                (Rechnungsdatum, bei Bulk pro Item)
+        ├── mode                'einkauf' | 'invest' | 'privat' | 'fixkosten'
+        ├── category_id         → expense_categories  (für invest/fixkosten)
+        ├── product_id          → purchase_products   (für einkauf, nullable)
+        ├── status              'pending' | 'saved' | 'skipped' | 'error'
+        ├── target_table        'purchase_prices' | 'expenses' | null
+        ├── target_id           UUID des gespeicherten Eintrags
+        ├── error_message       sichtbar in UI bei status='error'
+        └── created_at
+
+scan_batches  ← NEU: Gruppierung eines Upload-Vorgangs
+        ├── id
+        ├── created_at
+        ├── total_files
+        ├── processed_files
+        ├── status              'scanning' | 'review' | 'committed' | 'error'
+        └── note
+```
+
+### Der neue Flow
+
+```
+PHASE 1 — Batch-Upload (du wählst alle PDFs auf einmal):
+  → App sendet in Batches à 5 PDFs an Edge Function
+  → Je Batch: Claude erkennt Händler + ETTN + alle Positionen
+  → Ergebnisse landen sofort in receipt_items (status=pending)
+  → Realtime-Fortschrittsbalken: "34/100 PDFs verarbeitet ▓▓▓░░"
+  → ETTN-Duplikate werden automatisch übersprungen
+
+PHASE 2 — Bulk Review (du kategorisierst):
+  → Alle pending Items in einer Liste, gruppiert nach Händler
+  → Pro Item: Modus-Toggle (Einkauf / Invest / Privat / Fixkosten)
+  → Invest/Fixkosten: Kategorie-Dropdown direkt dabei (Pflichtfeld)
+  → Einkauf: Produkt-Matching (bekannt / neu / überspringen)
+  → Bulk-Aktionen: "Alle Öncü-Positionen → Einkauf"
+  → Speichern erst aktiv wenn alle Items kategorisiert
+
+PHASE 3 — Commit:
+  → App verarbeitet alle Items der Reihe nach
+  → Erfolg: status=saved, target_id gesetzt
+  → Fehler: status=error, error_message gesetzt — bleibt sichtbar!
+  → Zusammenfassung: "94 ✅  3 ❌  3 ⏭️ übersprungen"
+  → Fehler können korrigiert und erneut committed werden
+```
+
+### Was das betriebswirtschaftlich ermöglicht
+- **KDV-Export**: alle receipt_items WHERE vat_rate=20 AND month=Mai → Steuerberater-CSV
+- **Händler-Analyse**: alle Items GROUP BY supplier_id → Gesamtausgaben pro Händler
+- **Vollständigkeits-Check**: receipts WHERE EXISTS pending items → sofort sehen was fehlt
+- **Einkaufskosten**: alle Items mode='einkauf' → ersetzt purchase_prices (selbe Daten, besser strukturiert)
+- **Invest-Übersicht**: alle Items mode='invest' GROUP BY category → Kapitalbindung
+
+### Neustart-Strategie (Datenmigration)
+- `expenses` mit source='import' → **bleibt** (Excel-Import, korrekt)
+- `purchase_prices` → **leeren** (waren unvollständig, werden neu eingescannt)
+- `purchase_products` → **behalten** (Produkt-Katalog ist wertvoll)
+- Alle 100 Rechnungen → **neu einscannen** via Batch-Upload
+- Alte receipts → **behalten** (als Referenz, neue Items verweisen auf dieselben receipts)
+
+### Implementierungs-Reihenfolge
+1. `scan_batches` + `receipt_items` Tabellen anlegen (patch30)
+2. Edge Function: Batch-Scan (5 PDFs → receipt_items)
+3. Batch-Upload UI mit Realtime-Fortschritt
+4. Bulk-Review UI (pending Items kategorisieren)
+5. Commit-Pipeline (receipt_items → purchase_prices / expenses)
+6. purchase_prices leeren + alle Rechnungen neu einscannen
+7. Steuerberater-Export aus receipt_items

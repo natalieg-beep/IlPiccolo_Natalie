@@ -268,7 +268,13 @@ Deno.serve(async (req) => {
         }
       }
 
-      // receipt_items einfügen (auch bei Duplikat-Receipt, falls Items fehlen)
+      // receipt_items NUR für neue Receipts einfügen — Duplikate überspringen
+      if (isDuplicate) {
+        results.push({ filename, receipt_id: existingReceiptId, item_count: 0, duplicate: true, error: null })
+        await incrementProcessed(db, body.batch_id)
+        continue
+      }
+
       if (items.length > 0 && receiptId) {
         const receiptItemRows = items.map(item => {
           // amount_gross immer als Brutto speichern
