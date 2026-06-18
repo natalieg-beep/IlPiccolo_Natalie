@@ -1,27 +1,11 @@
-// Supabase Edge Function: scan-batch
-//
-// Nimmt einen Batch von bis zu 5 PDFs/Fotos, scannt jeden einzeln mit Claude,
-// legt Ergebnisse als receipt_items (status=pending) in die DB.
+// Supabase Edge Function: scan-batch (v2 — Storage-basiert)
 //
 // Request:
-//   {
-//     batch_id: string,   // UUID eines existierenden scan_batches
-//     files: [
-//       { base64: string, type: string, filename?: string }
-//     ]
-//   }
+//   { batch_id: string, storage_paths: string[] }
+//   (jeder Pfad zeigt auf eine Datei im receipts-pdfs Bucket)
 //
 // Response:
-//   {
-//     processed: number,
-//     results: Array<{
-//       filename: string | null,
-//       receipt_id: string | null,
-//       item_count: number,
-//       duplicate: boolean,
-//       error: string | null
-//     }>
-//   }
+//   { processed: number, results: Array<{path, receipt_id, item_count, duplicate, error}> }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -52,155 +36,119 @@ Antworte NUR mit einem einzigen JSON-Objekt, kein Markdown, kein sonstiger Text.
 }
 
 Wichtig zur Händler-Erkennung:
-- Der KÄUFER auf allen Rechnungen ist Il Piccolo N / BH28 Turizm / VKN 1681461403 / Adresse Kaş Andifli — NIEMALS als supplier_name!
+- Der KÄUFER ist Il Piccolo N / BH28 Turizm / VKN 1681461403 / Adresse Kaş Andifli — NIEMALS als supplier_name!
 - Auf e-Arşiv Rechnungen: "SAYIN ..." = Käufer = wir. IGNORIEREN.
 - Der VERKÄUFER steht oben links auf dem Beleg.
 - Trendyol: URL enthält "trendyol.com" ODER Fatura-Nr beginnt mit "TY/TYA" ODER Satış Kanalı = "Trendyol" → supplier_name = "Trendyol".
 
 Regeln für items:
 - price_tl = GENAU der gedruckte Preis — KEINE Berechnungen!
-  * KASSENBON (BIM, Migros, Şok): is_gross=true, price_tl = Zahl nach dem *
-  * e-ARŞİV/HORECA/RECHNUNG: is_gross=false, price_tl = Netto-Preis wie gedruckt
+  * KASSENBON (BIM, Migros, Şok): is_gross=true
+  * e-ARŞİV/HORECA/RECHNUNG: is_gross=false, price_tl = Netto-Preis
   * Rabatte (TUR PROM ISK., YERINDE TUKETIM): vom Preis abziehen
 - Menge = ANZAHL DER EINZELSTÜCKE (Cola 24×0,5L → quantity:24 unit:"Stk")
-- DEPOZIT: nur DPZ.CC/DPZ.FAN/DPZ.SPR/DPZ.ZERO als Produkte (name: "Depozit Coca-Cola" etc., category_hint: "verpackung"). Alle anderen DPZ ignorieren.
+- DEPOZIT: nur DPZ.CC/DPZ.FAN/DPZ.SPR/DPZ.ZERO als Produkte. Alle anderen DPZ ignorieren.
 - IGNORIERE vollständig: TOPLAM KDV, Ödenecek, Zahlungsinfos, Bankzeilen.
-- BIM-Format "N ad X PP,PP" = Mengen-Info für nächste Produktzeile. Nicht als eigenes Produkt.
+- BIM "N ad X PP,PP" = Mengen-Info für nächste Zeile, kein eigenes Produkt.
 - vat_rate: %1 (Grundnahrung), %10 (Lebensmittel), %20 (Non-Food).
 - Gleiche Produkte auf EINER Rechnung zusammenfassen.`
 
-interface FileInput {
-  base64: string
-  type: string
-  filename?: string
-}
-
-interface ScanBatchRequest {
-  batch_id: string
-  files: FileInput[]
-}
-
 interface ClaudeItem {
-  name: string
-  price_tl: number
-  is_gross: boolean
-  quantity: number
-  unit: string
-  vat_rate: number | null
-  category_hint: string
+  name: string; price_tl: number; is_gross: boolean
+  quantity: number; unit: string; vat_rate: number | null; category_hint: string
 }
-
 interface ClaudeResult {
-  supplier_name?: string | null
-  date?: string | null
-  ettn?: string | null
-  fatura_no?: string | null
-  total_tl?: number | null
-  vat_amount?: number | null
-  receipt_type?: string | null
-  items?: ClaudeItem[]
+  supplier_name?: string | null; date?: string | null; ettn?: string | null
+  fatura_no?: string | null; total_tl?: number | null; vat_amount?: number | null
+  receipt_type?: string | null; items?: ClaudeItem[]
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, content-type',
-      },
-    })
+    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
   }
 
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
-  if (!anthropicKey) {
-    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not set' }), { status: 500 })
-  }
+  if (!anthropicKey) return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not set' }), { status: 500 })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const db = createClient(supabaseUrl, supabaseKey)
 
-  let body: ScanBatchRequest
-  try {
-    body = await req.json()
-  } catch {
-    return new Response(JSON.stringify({ error: 'Ungültiger JSON-Body' }), { status: 400 })
+  let body: { batch_id: string; storage_paths: string[] }
+  try { body = await req.json() }
+  catch { return new Response(JSON.stringify({ error: 'Ungültiger JSON-Body' }), { status: 400 }) }
+
+  if (!body.batch_id || !Array.isArray(body.storage_paths) || body.storage_paths.length === 0) {
+    return new Response(JSON.stringify({ error: 'batch_id und storage_paths[] erforderlich' }), { status: 400 })
   }
 
-  if (!body.batch_id || !Array.isArray(body.files) || body.files.length === 0) {
-    return new Response(JSON.stringify({ error: 'batch_id und files[] erforderlich' }), { status: 400 })
-  }
-
-  // Händler-Tabelle einmal laden (für alle Dateien im Batch)
+  // Händler einmal laden
   const { data: allSuppliers } = await db.from('suppliers').select('id, name, category, aliases')
   type Sup = { id: string; name: string; category: string; aliases: string | null }
   const suppliers: Sup[] = (allSuppliers as Sup[]) ?? []
 
   function matchSupplier(supplierName: string): Sup | null {
     const sn = supplierName.toLowerCase()
-    return suppliers
-      .filter(s => {
-        const name = s.name.toLowerCase()
-        const aliases = s.aliases ? s.aliases.split(',').map(a => a.trim().toLowerCase()) : []
-        return sn.includes(name) || name.includes(sn)
-          || aliases.some(a => sn.includes(a) || a.includes(sn))
-      })
-      .sort((a, b) => b.name.length - a.name.length)[0] ?? null
+    return suppliers.filter(s => {
+      const name = s.name.toLowerCase()
+      const aliases = s.aliases ? s.aliases.split(',').map(a => a.trim().toLowerCase()) : []
+      return sn.includes(name) || name.includes(sn) || aliases.some(a => sn.includes(a) || a.includes(sn))
+    }).sort((a, b) => b.name.length - a.name.length)[0] ?? null
   }
 
-  const results: Array<{
-    filename: string | null
-    receipt_id: string | null
-    item_count: number
-    duplicate: boolean
-    error: string | null
-  }> = []
+  const results: Array<{ path: string; receipt_id: string | null; item_count: number; duplicate: boolean; error: string | null }> = []
 
-  for (const file of body.files) {
-    const filename = file.filename ?? null
+  for (const storagePath of body.storage_paths) {
+    const filename = storagePath.split('/').pop() ?? storagePath
 
     try {
-      // Claude-Content aufbauen
+      // Datei aus Storage laden
+      const { data: fileData, error: storageErr } = await db.storage
+        .from('receipts-pdfs')
+        .download(storagePath)
+
+      if (storageErr || !fileData) {
+        results.push({ path: storagePath, receipt_id: null, item_count: 0, duplicate: false, error: `Storage: ${storageErr?.message ?? 'Datei nicht gefunden'}` })
+        await incrementProcessed(db, body.batch_id)
+        continue
+      }
+
+      // Blob → base64
+      const arrayBuffer = await fileData.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuffer)
+      let binary = ''
+      const chunkSize = 8192
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+      }
+      const base64 = btoa(binary)
+
+      // Dateityp bestimmen
+      const isPdf = filename.toLowerCase().endsWith('.pdf')
+      const mediaType = isPdf ? 'application/pdf' : 'image/jpeg'
+
+      // Claude aufrufen
       type ContentBlock =
         | { type: 'text'; text: string }
         | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
         | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
 
-      const content: ContentBlock[] = []
-
-      if (file.type === 'application/pdf') {
-        content.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: file.base64 },
-        })
-      } else {
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: file.type as string, data: file.base64 },
-        })
-      }
+      const content: ContentBlock[] = isPdf
+        ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }]
+        : [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }]
       content.push({ type: 'text', text: 'Lies diesen Beleg und extrahiere Kopfdaten + alle Produkte.' })
 
-      // Claude aufrufen
       const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: {
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 4096,
-          system: SCAN_PROMPT,
-          messages: [{ role: 'user', content }],
-        }),
+        headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4096, system: SCAN_PROMPT, messages: [{ role: 'user', content }] }),
       })
 
       if (!claudeRes.ok) {
         const err = await claudeRes.text()
-        results.push({ filename, receipt_id: null, item_count: 0, duplicate: false, error: `Claude API Fehler: ${err.slice(0, 200)}` })
-        await db.from('scan_batches').update({ processed_files: db.rpc }).eq('id', body.batch_id)
+        results.push({ path: storagePath, receipt_id: null, item_count: 0, duplicate: false, error: `Claude: ${err.slice(0, 200)}` })
+        await incrementProcessed(db, body.batch_id)
         continue
       }
 
@@ -208,19 +156,14 @@ Deno.serve(async (req) => {
       const rawText: string = claudeData.content?.[0]?.text ?? ''
 
       let parsed: ClaudeResult = {}
-      try {
-        parsed = JSON.parse(rawText)
-      } catch {
-        const match = rawText.match(/\{[\s\S]*\}/)
-        if (match) { try { parsed = JSON.parse(match[0]) } catch { /* leer */ } }
-      }
+      try { parsed = JSON.parse(rawText) }
+      catch { const m = rawText.match(/\{[\s\S]*\}/); if (m) { try { parsed = JSON.parse(m[0]) } catch { /* leer */ } } }
 
       const items: ClaudeItem[] = parsed.items ?? []
 
-      // ETTN/Fatura Duplikat-Check
+      // Duplikat-Check
       let existingReceiptId: string | null = null
       let isDuplicate = false
-
       if (parsed.ettn) {
         const { data } = await db.from('receipts').select('id').eq('ettn', parsed.ettn).maybeSingle()
         if (data) { existingReceiptId = data.id; isDuplicate = true }
@@ -230,114 +173,71 @@ Deno.serve(async (req) => {
         if (data) { existingReceiptId = data.id; isDuplicate = true }
       }
 
-      // Händler matchen
-      const supplierMatch = parsed.supplier_name ? matchSupplier(parsed.supplier_name) : null
-
-      // Receipt anlegen (falls kein Duplikat)
-      let receiptId: string | null = existingReceiptId
-
-      if (!isDuplicate) {
-        const { data: newReceipt, error: receiptErr } = await db
-          .from('receipts')
-          .insert({
-            supplier_id:  supplierMatch?.id ?? null,
-            ettn:         parsed.ettn ?? null,
-            fatura_no:    parsed.fatura_no ?? null,
-            date:         parsed.date ?? null,
-            total_tl:     parsed.total_tl ?? null,
-            vat_amount:   parsed.vat_amount ?? null,
-            receipt_type: parsed.receipt_type ?? null,
-            source:       'scan',
-            filename:     filename,
-            item_count:   items.length,
-          })
-          .select('id')
-          .single()
-
-        if (receiptErr) {
-          // ETTN-Duplikat trotz Check (Race Condition) → als Duplikat behandeln
-          if (receiptErr.code === '23505') {
-            isDuplicate = true
-          } else {
-            results.push({ filename, receipt_id: null, item_count: 0, duplicate: false, error: receiptErr.message })
-            await incrementProcessed(db, body.batch_id)
-            continue
-          }
-        } else {
-          receiptId = newReceipt?.id ?? null
-        }
-      }
-
-      // receipt_items NUR für neue Receipts einfügen — Duplikate überspringen
       if (isDuplicate) {
-        results.push({ filename, receipt_id: existingReceiptId, item_count: 0, duplicate: true, error: null })
+        results.push({ path: storagePath, receipt_id: existingReceiptId, item_count: 0, duplicate: true, error: null })
         await incrementProcessed(db, body.batch_id)
         continue
       }
 
-      if (items.length > 0 && receiptId) {
-        const receiptItemRows = items.map(item => {
-          // amount_gross immer als Brutto speichern
-          const vatRate = item.vat_rate ?? 0
-          const amountGross = item.is_gross
-            ? item.price_tl
-            : item.price_tl * (1 + vatRate / 100)
+      // Händler matchen + Receipt anlegen
+      const supplierMatch = parsed.supplier_name ? matchSupplier(parsed.supplier_name) : null
 
-          return {
-            receipt_id:  receiptId,
-            batch_id:    body.batch_id,
-            name:        item.name,
-            amount_gross: amountGross,
-            vat_rate:    vatRate,
-            quantity:    item.quantity ?? 1,
-            unit:        item.unit ?? null,
-            date:        parsed.date ?? null,
-            mode:        'einkauf',
-            status:      'pending',
-          }
-        })
+      const { data: newReceipt, error: receiptErr } = await db.from('receipts').insert({
+        supplier_id: supplierMatch?.id ?? null,
+        ettn: parsed.ettn ?? null, fatura_no: parsed.fatura_no ?? null,
+        date: parsed.date ?? null, total_tl: parsed.total_tl ?? null,
+        vat_amount: parsed.vat_amount ?? null, receipt_type: parsed.receipt_type ?? null,
+        source: 'scan', filename, item_count: items.length,
+      }).select('id').single()
 
-        await db.from('receipt_items').insert(receiptItemRows)
+      if (receiptErr) {
+        if (receiptErr.code === '23505') {
+          // Race condition Duplikat — ignorieren
+          results.push({ path: storagePath, receipt_id: null, item_count: 0, duplicate: true, error: null })
+        } else {
+          results.push({ path: storagePath, receipt_id: null, item_count: 0, duplicate: false, error: receiptErr.message })
+        }
+        await incrementProcessed(db, body.batch_id)
+        continue
       }
 
-      results.push({
-        filename,
-        receipt_id: receiptId,
-        item_count: items.length,
-        duplicate: isDuplicate,
-        error: null,
-      })
+      const receiptId = newReceipt!.id
+
+      // receipt_items anlegen
+      if (items.length > 0) {
+        const rows = items.map(item => {
+          const vatRate = item.vat_rate ?? 0
+          const amountGross = item.is_gross ? item.price_tl : item.price_tl * (1 + vatRate / 100)
+          return {
+            receipt_id: receiptId, batch_id: body.batch_id,
+            name: item.name, amount_gross: amountGross, vat_rate: vatRate,
+            quantity: item.quantity ?? 1, unit: item.unit ?? null,
+            date: parsed.date ?? null, mode: 'einkauf', status: 'pending',
+          }
+        })
+        await db.from('receipt_items').insert(rows)
+      }
+
+      results.push({ path: storagePath, receipt_id: receiptId, item_count: items.length, duplicate: false, error: null })
+
     } catch (err) {
-      results.push({
-        filename,
-        receipt_id: null,
-        item_count: 0,
-        duplicate: false,
-        error: err instanceof Error ? err.message : String(err),
-      })
+      results.push({ path: storagePath, receipt_id: null, item_count: 0, duplicate: false, error: err instanceof Error ? err.message : String(err) })
     }
 
     await incrementProcessed(db, body.batch_id)
   }
 
-  // batch als 'review' markieren wenn alle Dateien verarbeitet
-  const { data: batchData } = await db
-    .from('scan_batches')
-    .select('total_files, processed_files')
-    .eq('id', body.batch_id)
-    .single()
-
+  // Batch abschließen
+  const { data: batchData } = await db.from('scan_batches').select('total_files, processed_files').eq('id', body.batch_id).single()
   if (batchData && batchData.processed_files >= batchData.total_files) {
     await db.from('scan_batches').update({ status: 'review' }).eq('id', body.batch_id)
   }
 
-  return new Response(
-    JSON.stringify({ processed: results.length, results }),
-    { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
-  )
+  return new Response(JSON.stringify({ processed: results.length, results }), {
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+  })
 })
 
 async function incrementProcessed(db: ReturnType<typeof createClient>, batchId: string) {
-  // processed_files um 1 erhöhen (kein direktes INCREMENT in Supabase JS Client → via RPC)
   await db.rpc('increment_batch_processed', { batch_id: batchId })
 }
