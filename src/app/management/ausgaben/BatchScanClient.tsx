@@ -67,7 +67,8 @@ export default function BatchScanClient() {
     }
 
     if (uploadedPaths.length === 0) {
-      setErrorMsg('Kein Upload erfolgreich.')
+      const firstErr = results[0]?.error ?? 'Unbekannt'
+      setErrorMsg(`Kein Upload erfolgreich. Erster Fehler: ${firstErr}`)
       setPhase('error'); return
     }
 
