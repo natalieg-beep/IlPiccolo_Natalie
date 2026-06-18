@@ -134,7 +134,7 @@ export default function BatchScanClient() {
         return
       }
 
-      // Edge Function aufrufen
+      // Edge Function aufrufen — Fehler pro Datei loggen, NICHT abbrechen
       let batchResult: BatchResult
       try {
         const res = await fetch(EDGE, {
@@ -147,13 +147,19 @@ export default function BatchScanClient() {
         })
         if (!res.ok) {
           const txt = await res.text()
-          throw new Error(`HTTP ${res.status}: ${txt.slice(0, 300)}`)
+          throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`)
         }
         batchResult = await res.json()
       } catch (fetchErr) {
-        setErrorMsg(`Netzwerk-Fehler: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
-        setPhase('error')
-        return
+        // Fehler für diese Datei(en) als Error-Ergebnis eintragen — Batch läuft weiter
+        const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+        const errorResults: FileResult[] = chunk.map(f => ({
+          filename: f.name, receipt_id: null, item_count: 0, duplicate: false, error: errMsg,
+        }))
+        accumulated.push(...errorResults)
+        setAllResults([...accumulated])
+        setProcessed(p => p + chunk.length)
+        continue  // nächste Datei
       }
 
       accumulated.push(...batchResult.results)
