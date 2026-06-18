@@ -113,8 +113,8 @@ export default function BatchScanClient() {
     }
     setBatchId(batch.id)
 
-    // 2. Dateien in Gruppen à 5 verarbeiten
-    const chunks = chunkArray(files, 5)
+    // 2. Dateien einzeln verarbeiten (1 pro Edge-Function-Aufruf — PDFs können groß sein)
+    const chunks = chunkArray(files, 1)
     const accumulated: FileResult[] = []
 
     for (const chunk of chunks) {
